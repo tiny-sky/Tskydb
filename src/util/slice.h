@@ -1,5 +1,4 @@
-#ifndef TSKYDB_UTIL_SLICE_H_
-#define TSKYDB_UTIL_SLICE_H_
+#pragma once
 
 #include <assert.h>
 #include <cstring>
@@ -66,4 +65,3 @@ inline int Slice::compare(const Slice &b) const {
 }
 
 };  // namespace Tskydb
-#endif

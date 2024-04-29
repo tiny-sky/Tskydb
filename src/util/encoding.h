@@ -1,5 +1,4 @@
-#ifndef TSKYDB_UTIL_ENCODING_H_
-#define TSKYDB_UTIL_ENCODING_H_
+#pragma once
 
 #include <unistd.h>
 
@@ -75,5 +74,3 @@ inline void PutFixed64(std::string *dst, uint64_t value) {
 }
 
 }  // namespace Tskydb
-
-#endif

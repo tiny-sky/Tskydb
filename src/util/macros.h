@@ -1,5 +1,4 @@
-#ifndef UTIL_MACROS_H_
-#define UTIL_MACROS_H_
+#pragma once
 
 namespace Tskydb {
 #define DISALLOW_COPY(cname)                                      \
@@ -14,5 +13,3 @@ namespace Tskydb {
   DISALLOW_COPY(cname);               \
   DISALLOW_MOVE(cname);
 }  // namespace Tskydb
-
-#endif
