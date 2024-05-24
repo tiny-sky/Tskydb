@@ -36,9 +36,21 @@ class Slice {
     size_ = 0;
   }
 
+  // Drop the first "n" bytes from this slice.
+  void remove_prefix(size_t n) {
+    assert(n <= size());
+    data_ += n;
+    size_ -= n;
+  }
+
   std::string ToString() const { return std::string(data_, size_); }
 
   int compare(const Slice &b) const;
+
+  // Return true iff "x" is a prefix of "*this"
+  bool starts_with(const Slice &x) const {
+    return ((size_ >= x.size_) && (memcmp(data_, x.data_, x.size_) == 0));
+  }
 
  private:
   const char *data_;

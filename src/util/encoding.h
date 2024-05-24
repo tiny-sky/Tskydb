@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string>
 
+#include "slice.h"
+
 namespace Tskydb {
 
 enum class Endian {
@@ -72,5 +74,26 @@ inline void PutFixed32(std::string *dst, uint32_t value) {
 inline void PutFixed64(std::string *dst, uint64_t value) {
   PutFixed<uint64_t>(dst, value);
 }
+
+template <typename T>
+bool GetFixed(Slice *input, T *value) {
+  if (input.size() < sizeof(T)) return false;
+  *value = DecodeFixed<T>(input.data());
+  input->remove_prefixe(sizeof(T));
+  return true;
+}
+
+inline bool GetFixed32(Slice *input, uint32_t *value) {
+  return GetFixed<uint32_t>(input, value);
+}
+inline bool GetFixed64(Slice *input, uint64_t *value) {
+  return GetFixed<uint64_t>(input, value);
+}
+
+void PutVarint32(std::string *dst, uint32_t v);
+bool GetVarint32(Slice *input, uint32_t *value);
+
+bool GetLengthPrefixedSlice(Slice* input, Slice* result);
+void PutLengthPrefixedSlice(std::string* dst, const Slice& value);
 
 }  // namespace Tskydb
