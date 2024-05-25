@@ -6,12 +6,46 @@
 
 #include <cassert>
 #include <cstdio>
+#include <limits>
 
 #include "env.h"
 #include "util/slice.h"
 #include "util/status.h"
 
 namespace Tskydb {
+
+bool ConsumeDecimalNumber(Slice *in, uint64_t *val) {
+  // Constants that will be optimized away.
+  constexpr const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
+  constexpr const char kLastDigitOfMaxUint64 =
+      '0' + static_cast<char>(kMaxUint64 % 10);
+
+  uint64_t value = 0;
+
+  // reinterpret_cast-ing from char* to uint8_t* to avoid signedness.
+  const uint8_t *start = reinterpret_cast<const uint8_t *>(in->data());
+
+  const uint8_t *end = start + in->size();
+  const uint8_t *current = start;
+  for (; current != end; ++current) {
+    const uint8_t ch = *current;
+    if (ch < '0' || ch > '9') break;
+
+    // Overflow check.
+    // kMaxUint64 / 10 is also constant and will be optimized away.
+    if (value > kMaxUint64 / 10 ||
+        (value == kMaxUint64 / 10 && ch > kLastDigitOfMaxUint64)) {
+      return false;
+    }
+
+    value = (value * 10) + (ch - '0');
+  }
+
+  *val = value;
+  const size_t digits_consumed = current - start;
+  in->remove_prefix(digits_consumed);
+  return digits_consumed != 0;
+}
 
 // A utility routine: write "data" to the named file and Sync() it.
 Status WriteStringToFileSync(Env *env, const Slice &data,
@@ -118,24 +152,6 @@ bool ParseFileName(const std::string &filename, uint64_t *number,
     *number = num;
   }
   return true;
-}
-
-Status SetCurrentFile(Env *env, const std::string &dbname,
-                      uint64_t descriptor_number) {
-  // Remove leading "dbname/" and add newline to manifest file name
-  std::string manifest = DescriptorFileName(dbname, descriptor_number);
-  Slice contents = manifest;
-  assert(contents.starts_with(dbname + "/"));
-  contents.remove_prefix(dbname.size() + 1);
-  std::string tmp = TempFileName(dbname, descriptor_number);
-  Status s = WriteStringToFileSync(env, contents.ToString() + "\n", tmp);
-  if (s.ok()) {
-    s = env->RenameFile(tmp, CurrentFileName(dbname));
-  }
-  if (!s.ok()) {
-    env->RemoveFile(tmp);
-  }
-  return s;
 }
 
 }  // namespace Tskydb

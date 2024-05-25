@@ -32,6 +32,8 @@ class Version {
   void Unref();
 
  private:
+  friend class VersionSet;
+
   VersionSet *vset_;  // VersionSet to which this Version belongs
   Version *next_;     // Next version in linked list
   Version *prev_;     // Previous version in linked list
@@ -39,6 +41,14 @@ class Version {
 
   // List of files per level
   std::vector<FileMetaData *> files_[config::kNumLevels];
+
+  // Level that should be compacted next and its compaction score.
+  // Score < 1 means compaction is not strictly needed.  These fields
+  // are initialized by Finalize().
+  double compaction_score_;
+
+  // Next file to compact based on seek stats.
+  FileMetaData *file_to_compact_;
 };
 
 class VersionSet {
@@ -61,8 +71,21 @@ class VersionSet {
   // Recover the last saved descriptor from persistent storage.
   Status Recover(bool *save_manifest);
 
+  // For GC
+  // Add all files listed in any live version to *live.
+  void AddLiveFiles(std::set<uint64_t> *live);
+
   // Return the current version.
   Version *current() const { return current_; }
+
+  // Return the current log file number.
+  uint64_t LogNumber() const { return log_number_; }
+
+  // ?
+  uint64_t PrevLogNumber() const { return prev_log_number_; }
+
+  // Return the current manifest file number
+  uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_++; }
@@ -70,13 +93,21 @@ class VersionSet {
   // Return the last sequence number.
   uint64_t LastSequence() const { return last_sequence_; }
 
+  TableCache *GetTableCahe() const { return table_cache_.get(); }
+
+  // Returns true iff some level needs a compaction.
+  bool NeedsCompaction() const {
+    Version *v = current_;
+    return (v->compaction_score_ >= 1) || (v->file_to_compact_ != nullptr);
+  }
+
  private:
   friend class Version;
 
   Env *const env_;
   const std::string dbname_;
   const Options *const options_;
-  TableCache *const table_cache_;
+  std::unique_ptr<TableCache> table_cache_;
   const InternalKeyComparator icmp_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;

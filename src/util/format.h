@@ -1,7 +1,5 @@
 #pragma once
 
-#include <atomic>
-
 namespace Tskydb {
 
 namespace config {
