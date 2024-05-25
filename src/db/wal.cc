@@ -3,8 +3,8 @@
 #include <assert.h>
 
 #include "util/crc32c.h"
+#include "util/format.h"
 #include "util/encoding.h"
-#include "writablefile.h"
 
 namespace Tskydb {
 
@@ -61,7 +61,7 @@ Status Wal::AddRecord(const Slice &slice) {
     ptr += fragment_length;
     left -= fragment_length;
     begin = false;
-  } while (s.Isok() && left > 0);
+  } while (s.ok() && left > 0);
   return s;
 }
 
@@ -76,9 +76,9 @@ Status Wal::EmitPhysicalRecord(RecordType t, const char *ptr, size_t length) {
   EncodeFixed32(buf, crc);
 
   Status s = dest_->Append(Slice(buf, kHeaderSize));
-  if (s.Isok()) {
+  if (s.ok()) {
     s = dest_->Append(Slice(ptr, length));
-    if (s.Isok()) {
+    if (s.ok()) {
       s = dest_->Flush();
     }
   }

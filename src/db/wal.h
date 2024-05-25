@@ -1,9 +1,8 @@
 #pragma once
 
-#include "writablefile.h"
-
 #include <cstddef>
 
+#include "env.h"
 #include "util/format.h"
 #include "util/macros.h"
 #include "util/slice.h"
@@ -14,7 +13,10 @@ namespace Tskydb {
 
 namespace crc32c = leveldb::crc32c;
 
+using namespace Tskydb::log;
+
 class Wal {
+
  public:
   explicit Wal(WritableFile *dest);
 
