@@ -1,12 +1,13 @@
 #include "env.h"
 
+#include <dirent.h>
 #include <fcntl.h>
+#include <assert.h>
 #include <unistd.h>
 #include <string>
+#include <thread>
 
 namespace Tskydb {
-
-constexpr const size_t kWritableFileBufferSize = 65536;
 
 Status PosixError(const std::string &context, int error_number) {
   if (error_number == ENOENT) {
@@ -16,8 +17,75 @@ Status PosixError(const std::string &context, int error_number) {
   }
 }
 
+Status Env::RemoveFile(const std::string &filename) {
+  if (::unlink(filename.c_str()) != 0) {
+    return PosixError(filename, errno);
+  }
+  return Status::OK();
+}
+
 Status Env::NewWritableFile(const std::string &filename,
-                            WritableFile **result) {}
+                            WritableFile **result) {
+  int fd = ::open(filename.c_str(), O_TRUNC | O_WRONLY | O_CREAT, 0644);
+  if (fd < 0) {
+    *result = nullptr;
+    return PosixError(filename, errno);
+  }
+
+  *result = new WritableFile(filename, fd);
+  return Status::OK();
+}
+
+void Env::BackgroundThreadMain() {
+  while (true) {
+    bg_work_mutex_.lock();
+
+    while(bg_work_queue_.empty()) {
+      bg_work_cv_.Wait();
+    }
+
+    assert(!bg_work_queue_.empty());
+    auto bg_work_func = bg_work_queue_.front().func;
+    void *bg_work_arg = bg_work_queue_.front().arg;
+    bg_work_queue_.pop();
+
+    bg_work_mutex_.unlock();
+    bg_work_func(bg_work_arg);
+  }
+}
+
+void Env::Schedule(BackgroundWorkFunc bg_work_function, void *bg_work_arg) {
+  bg_work_mutex_.lock();
+
+  // Start the background thread, if we haven't done so already.
+  if (!started_background_thread_) {
+    started_background_thread_ = true;
+    std::thread(&BackgroundThreadMain).detach();
+  }
+
+  // If the queue is empty, the background thread may be waiting for work.
+  if (bg_work_queue_.empty()) {
+    bg_work_cv_.Signal();
+  }
+
+  bg_work_queue_.emplace(std::move(bg_work_function), bg_work_arg);
+  bg_work_mutex_.unlock();
+}
+
+Status Env::GetChildren(const std::string &directory_path,
+                        std::vector<std::string> *result) {
+  result->clear();
+  ::DIR *dir = ::opendir(directory_path.c_str());
+  if (dir == nullptr) {
+    return PosixError(directory_path, errno);
+  }
+  struct ::dirent *entry;
+  while ((entry = ::readdir(dir)) != nullptr) {
+    result->emplace_back(entry->d_name);
+  }
+  ::closedir(dir);
+  return Status::OK();
+}
 
 WritableFile::WritableFile(std::string filename, int fd)
     : pos_(0),

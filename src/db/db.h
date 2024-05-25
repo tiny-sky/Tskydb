@@ -3,6 +3,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 
 #include "options.h"
@@ -14,7 +15,6 @@
 #include "version_edit.h"
 #include "version_set.h"
 #include "wal.h"
-#include "writablefile.h"
 #include "write_batch.h"
 
 namespace Tskydb {
@@ -75,8 +75,15 @@ class DB {
   // Delete any unneeded files and stale in-memory entries.
   void RemoveObsoleteFiles();
 
+  // Compression operations
+  void BackgroundCompaction();
+
   // Possibly schedule compression operations
   void MaybeScheduleCompaction();
+
+  // background
+  static void BGWork(void *db);
+  void BackgroundCall();
 
   // Constant after construction
   Env *const env_;
@@ -93,6 +100,10 @@ class DB {
   uint64_t logfile_number_;
   std::unique_ptr<Wal> log_;
 
+  // For GC
+  // Set of table files to protect from deletion
+  std::set<uint64_t> pending_outputs_;
+
   // Queue of writers.
   std::deque<Writer *> writers_;
   std::unique_ptr<WriteBatch> tmp_batch_;
@@ -103,5 +114,10 @@ class DB {
 
   // Close the database
   std::atomic<bool> shutting_down_;
+  // Background task completion signal
+  CondVar background_work_finished_signal_;
+
+  // Has a background compaction been scheduled or is running?
+  bool background_compaction_scheduled_;
 };
 }  // namespace Tskydb

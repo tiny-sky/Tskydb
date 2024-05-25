@@ -1,14 +1,23 @@
 #pragma once
 
+#include <functional>
+#include <mutex>
+#include <queue>
 #include <string>
+#include <vector>
 
 #include "util/macros.h"
 #include "util/slice.h"
 #include "util/status.h"
+#include "util/sync.h"
 
 namespace Tskydb {
 
+constexpr const size_t kWritableFileBufferSize = 65536;
+
 class Env {
+  using BackgroundWorkFunc = std::function<void(void *)>;
+
  public:
   Env();
   ~Env();
@@ -22,6 +31,38 @@ class Env {
   Status NewWritableFile(const std::string &filename, WritableFile **result);
 
   Status NewAppendableFile(const std::string &filename, WritableFile **result);
+
+  void Schedule(BackgroundWorkFunc background_work_function,
+                void *backgroud_work_arg);
+
+  Status GetChildren(const std::string &directory_path,
+                     std::vector<std::string> *result);
+
+  // Delete Files
+  Status RemoveFile(const std::string &filename);
+
+ private:
+  void BackgroundThreadMain();
+
+  // Stores the work item data in a Schedule() call.
+  //
+  // Instances are constructed on the thread calling Schedule() and used on the
+  // background thread.
+  //
+  // This structure is thread-safe because it is immutable.
+  struct BgWorkPackage {
+    explicit BgWorkPackage(BackgroundWorkFunc func, void *arg)
+        : func(std::move(func)), arg(arg) {}
+
+    BackgroundWorkFunc func;
+    void *arg;
+  };
+
+  std::mutex bg_work_mutex_;
+  CondVar bg_work_cv_;
+  bool started_background_thread_;
+
+  std::queue<BgWorkPackage> bg_work_queue_;
 };
 
 class SequentialFile {

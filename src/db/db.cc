@@ -55,6 +55,7 @@ DB::DB(const Options &options, const std::string &dbname)
       internal_filter_policy_(options.filter_policy),
       options_(SanitizeOptions(dbname, options)),
       dbname_(dbname),
+      background_work_finished_signal_(&mutex_),
       mem_(nullptr),
       imm_(nullptr) {
   tmp_batch_ = std::make_unique<WriteBatch>();
@@ -67,6 +68,91 @@ DB::DB(const Options &options, const std::string &dbname)
 DB::~DB() {
   if (mem_ != nullptr) mem_->Unref();
   if (imm_ != nullptr) imm_->Unref();
+}
+
+void DB::RemoveObsoleteFiles() {
+  // Make a set of all of the live files
+  std::set<uint64_t> live = pending_outputs_;
+  versions_->AddLiveFiles(&live);
+
+  // Get the files in the directory
+  // identify the version by file name
+  std::vector<std::string> filenames;
+  env_->GetChildren(dbname_, &filenames);
+
+  uint64_t number;
+  FileType type;
+  std::vector<std::string> files_to_delete;
+  for (std::string &filename : filenames) {
+    if (ParseFileName(filename, &number, &type)) {
+      bool keep = false;
+      switch (type) {
+        case kLogFile:
+          keep = ((number >= versions_->LogNumber()) ||
+                  number == versions_->PrevLogNumber());
+          break;
+        case kDescriptorFile:
+          keep = (number >= versions_->ManifestFileNumber());
+          break;
+        case kTableFile:
+          keep = (live.find(number) != live.end());
+          break;
+        case kTempFile:
+          keep = (live.find(number) != live.end());
+          break;
+        case kCurrentFile:
+        case kDBLockFile:
+        case kInfoLogFile:
+          keep = true;
+          break;
+      }
+
+      if (!keep) {
+        files_to_delete.push_back(std::move(filename));
+        if (type == kTableFile) {
+          versions_->GetTableCahe()->Evict(number);
+        }
+      }
+    }
+
+    mutex_.unlock();
+    for (const std::string &filename : files_to_delete) {
+      env_->RemoveFile(dbname_ + '/' + filename);
+    }
+    mutex_.lock();
+  }
+}
+
+void DB::MaybeScheduleCompaction() {
+  if (background_compaction_scheduled_) {
+    // Already scheduled
+  } else if (shutting_down_.load(std::memory_order_acquire)) {
+    // DB is being deleted; no more background compactions
+  } else if (imm_ == nullptr && !versions_->NeedsCompaction()) {
+    // No work to be done
+  } else {
+    background_compaction_scheduled_ = true;
+    env_->Schedule(&DB::BGWork, this);
+  }
+}
+
+void DB::BGWork(void *db) { reinterpret_cast<DB *>(db)->BackgroundCall(); }
+
+void DB::BackgroundCall() {
+  MutexLock l(&mutex_);
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    // No more background work when shutting down.
+  } else {
+    BackgroundCompaction();
+  }
+
+  background_compaction_scheduled_ = false;
+  MaybeScheduleCompaction();
+  background_work_finished_signal_.SignalAll();
+}
+
+void DB::BackgroundCompaction() {
+  
 }
 
 Status DB::Put(const WriteOptions &opt, const Slice &key, const Slice &value) {
@@ -91,7 +177,7 @@ Status DB::Open(const Options &options, const std::string &dbname, DB **dbptr) {
   // This will restore the descriptor from edit
   // any changes added to the *edit.
   bool save_manifest = false;
-  Status s = impl->Recover(&edit, &save_manifest);
+  Status s = impl->Recover(&edit, &save_manifest);  // TODO
 
   // Create new log file
   if (s.ok() && impl->mem_ == nullptr) {
@@ -278,5 +364,9 @@ WriteBatch *DB::BuildBatchGroup(Writer **last_writer) {
     *last_writer = w;
   }
   return result;
+}
+
+Status DB::Recover(VersionEdit *edit, bool *save_manifest) {
+  return Status::OK();
 }
 }  // namespace Tskydb
