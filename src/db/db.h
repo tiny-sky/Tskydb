@@ -75,13 +75,19 @@ class DB {
   // Delete any unneeded files and stale in-memory entries.
   void RemoveObsoleteFiles();
 
-  // Compression operations
+  // Compaction
+  // =================================
+  // Background Compression operations
   void BackgroundCompaction();
 
   // Possibly schedule compression operations
   void MaybeScheduleCompaction();
 
-  // background
+  // Compact the in-memory write buffer to disk.
+  void CompactMemTable();
+
+  // Background Work
+  // =================================
   static void BGWork(void *db);
   void BackgroundCall();
 

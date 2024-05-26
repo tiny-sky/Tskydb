@@ -28,6 +28,12 @@ class Version {
   // compaction may need to be triggered, false otherwise.
   bool UpdateStats(const Stats &stats);
 
+  void GetOverlappingInputs(
+      int level,
+      const InternalKey *begin,  // nullptr means before all keys
+      const InternalKey *end,    // nullptr means after all keys
+      std::vector<FileMetaData *> *inputs);
+
   void Ref();
   void Unref();
 
@@ -46,9 +52,11 @@ class Version {
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
   double compaction_score_;
+  int size_compaction_level_;
 
   // Next file to compact based on seek stats.
   FileMetaData *file_to_compact_;
+  int seek_compaction_level_;
 };
 
 class VersionSet {
@@ -70,6 +78,10 @@ class VersionSet {
 
   // Recover the last saved descriptor from persistent storage.
   Status Recover(bool *save_manifest);
+
+  // Pick level and inputs for a new compaction.
+  // Returns nullptr if there is no compaction to be done.
+  Compaction* PickCompaction();
 
   // For GC
   // Add all files listed in any live version to *live.
@@ -104,6 +116,13 @@ class VersionSet {
  private:
   friend class Version;
 
+  // Stores the minimal range that covers all entries in inputs in
+  // smallest, largest.
+  void GetRange(const std::vector<FileMetaData *> &inputs,
+                InternalKey *smallest, InternalKey *largest);
+
+  void SetupOtherInputs(Compaction *c);
+
   Env *const env_;
   const std::string dbname_;
   const Options *const options_;
@@ -121,5 +140,28 @@ class VersionSet {
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
   std::string compact_pointer_[config::kNumLevels];
+};
+
+// A Compaction encapsulates information about a compaction.
+class Compaction {
+ public:
+  ~Compaction();
+
+  // Return the level that is being compacted.  Inputs from "level"
+  // and "level+1" will be merged to produce a set of "level+1" files.
+  int level() const { return level_; }
+
+ private:
+  friend class Version;
+  friend class VersionSet;
+
+  Compaction(const Options *options, int level);
+
+  int level_; // current compaction level
+  Version *input_version_;
+  VersionEdit edit_;
+
+  // Each compaction reads inputs from "level_" and "level_+1"
+  std::vector<FileMetaData *> inputs_[2];  // The two sets of inputs
 };
 }  // namespace Tskydb

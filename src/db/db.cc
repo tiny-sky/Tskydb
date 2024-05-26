@@ -152,6 +152,12 @@ void DB::BackgroundCall() {
 }
 
 void DB::BackgroundCompaction() {
+  if (imm_ != nullptr) {
+    CompactMemTable();
+    return;
+  }
+
+  auto c = std::move(versions_->PickCompaction());
   
 }
 
