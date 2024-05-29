@@ -1,8 +1,11 @@
 #include "env.h"
 
+#include <assert.h>
 #include <dirent.h>
 #include <fcntl.h>
-#include <assert.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <string>
 #include <thread>
@@ -24,6 +27,16 @@ Status Env::RemoveFile(const std::string &filename) {
   return Status::OK();
 }
 
+Status Env::GetFileSize(const std::string &filename, uint64_t *size) {
+  struct ::stat file_stat;
+  if (::stat(filename.c_str(), &file_stat) != 0) {
+    *size = 0;
+    return PosixError(filename, errno);
+  }
+  *size = file_stat.st_size;
+  return Status::OK();
+}
+
 Status Env::NewWritableFile(const std::string &filename,
                             WritableFile **result) {
   int fd = ::open(filename.c_str(), O_TRUNC | O_WRONLY | O_CREAT, 0644);
@@ -36,11 +49,34 @@ Status Env::NewWritableFile(const std::string &filename,
   return Status::OK();
 }
 
+Status Env::NewRandomAccessFile(const std::string &filename,
+                                RandomAccessFile **result) {
+  *result = nullptr;
+  int fd = ::open(filename.c_str(), O_RDONLY);
+  if (fd < 0) {
+    return PosixError(filename, errno);
+  }
+
+  size_t file_size;
+  Status status = GetFileSize(filename, &file_size);
+  if (status.ok()) {
+    void *mmap_base = ::mmap(nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
+    if (mmap_base != MAP_FAILED) {
+      *result = new MmapReadableFile(
+          filename, reinterpret_cast<char *>(mmap_base), file_size);
+    } else {
+      status = PosixError(filename, errno);
+    }
+  }
+  ::close(fd);
+  return status;
+}
+
 void Env::BackgroundThreadMain() {
   while (true) {
     bg_work_mutex_.lock();
 
-    while(bg_work_queue_.empty()) {
+    while (bg_work_queue_.empty()) {
       bg_work_cv_.Wait();
     }
 
@@ -85,6 +121,13 @@ Status Env::GetChildren(const std::string &directory_path,
   }
   ::closedir(dir);
   return Status::OK();
+}
+
+uint64_t Env::NowMicros() {
+  static constexpr uint64_t kUsecondsPerSecond = 1000000;
+  struct ::timeval tv;
+  ::gettimeofday(&tv, nullptr);
+  return static_cast<uint64_t>(tv.tv_sec) * kUsecondsPerSecond + tv.tv_usec;
 }
 
 WritableFile::WritableFile(std::string filename, int fd)
@@ -232,6 +275,34 @@ class PosixRandomAccessFile final : public RandomAccessFile {
 
  private:
   const int fd_;  // -1 if has_permanent_fd_ is false.
+  const std::string filename_;
+};
+
+class MmapReadableFile : public RandomAccessFile {
+ public:
+  MmapReadableFile(std::string filename, char *mmap_base, size_t length)
+      : mmap_base_(mmap_base),
+        length_(length),
+        filename_(std::move(filename)) {}
+
+  ~MmapReadableFile() override {
+    ::munmap(static_cast<void *>(mmap_base_), length_);
+  }
+
+  Status Read(uint64_t offset, size_t n, Slice *result,
+              char *scratch) const override {
+    if (offset + n > length_) {
+      *result = Slice();
+      return PosixError(filename_, EINVAL);
+    }
+
+    *result = Slice(mmap_base_ + offset, n);
+    return Status::OK();
+  }
+
+ private:
+  char *const mmap_base_;
+  const size_t length_;
   const std::string filename_;
 };
 

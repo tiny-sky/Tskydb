@@ -40,6 +40,11 @@ class Env {
 
   // Delete Files
   Status RemoveFile(const std::string &filename);
+  // Get File size by filename
+  Status GetFileSize(const std::string& filename, uint64_t* size);
+
+  // Get current time
+  uint64_t NowMicros();
 
  private:
   void BackgroundThreadMain();
