@@ -9,6 +9,13 @@
 
 namespace Tskydb {
 
+// Format of an Key is concatenation of:
+//  key_size     : varint32 of internal_key.size()
+//  key bytes    : char[internal_key.size()]
+//  tag          : uint64((sequence << 8) | type)
+//  value_size   : varint32 of value.size()
+//  value bytes  : char[value.size()]
+
 template <typename Key, class Comparator>
 struct SkipNode {
   explicit SkipNode(const Key &k) : key(k) {}

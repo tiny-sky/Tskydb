@@ -64,7 +64,6 @@ void SkipList<Key, Comparator>::Insert(const Key &key) {
     cur->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i));
     prev[i]->SetNext(i, cur);
   }
-  
 }
 
 
