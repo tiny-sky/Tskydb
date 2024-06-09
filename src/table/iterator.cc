@@ -241,4 +241,12 @@ Iterator *NewErrorIterator(const Status &status) {
   return new EmptyIterator(status);
 }
 
+Iterator *NewEmptyIterator() { return new EmptyIterator(Status::OK()); }
+
+Iterator *NewTwoLevelIterator(Iterator *index_iter,
+                              BlockFunction block_function, void *arg,
+                              const ReadOptions &options) {
+  return new TwoLevelIterator(index_iter, block_function, arg, options);
+}
+
 }  // namespace Tskydb
