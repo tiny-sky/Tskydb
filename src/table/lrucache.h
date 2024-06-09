@@ -58,17 +58,24 @@ class LRUCache {
   LRUCache(size_t capacity = 0);
   ~LRUCache();
 
+  // Opaque handle to an entry stored in the cache.
+  struct Handle {};
+
   void SetCapacity(size_t capacity) { capacity_ = capacity; }
 
-  auto Insert(const Slice &key, size_t charge, void *value) -> LRUNode *;
+  auto Insert(const Slice &key, size_t charge, void *value) -> Handle *;
 
-  auto Lookup(const Slice &key) -> LRUNode *;
+  auto Lookup(const Slice &key) -> Handle *;
 
   void Release(LRUNode *node);
 
   void Erase(const Slice &key);
 
   auto FinishErase(LRUNode *e) -> bool;
+
+  void *Value(Handle *handle) {
+    return reinterpret_cast<LRUNode *>(handle)->value;
+  }
 
  private:
   static inline uint32_t HashSlice(const Slice &s) {

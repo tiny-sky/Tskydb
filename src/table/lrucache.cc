@@ -124,14 +124,14 @@ void LRUCache::LRU_Append(LRUNode *list, LRUNode *e) {
   e->next->prev = e;
 }
 
-auto LRUCache::Lookup(const Slice &key) -> LRUNode * {
+auto LRUCache::Lookup(const Slice &key) -> Handle * {
   std::lock_guard<std::mutex> guard(latch_);
   const uint32_t hash = HashSlice(key);
   LRUNode *e = table_.Lookup(key, hash);
   if (e != nullptr) {
     Pin(e);
   }
-  return e;
+  return reinterpret_cast<Handle *>(e);
 }
 
 void LRUCache::Release(LRUNode *node) {
@@ -140,7 +140,7 @@ void LRUCache::Release(LRUNode *node) {
 }
 
 auto LRUCache::Insert(const Slice &key, size_t charge, void *value)
-    -> LRUNode * {
+    -> Handle * {
   std::lock_guard<std::mutex> guard(latch_);
 
   const uint32_t hash = HashSlice(key);
@@ -167,7 +167,7 @@ auto LRUCache::Insert(const Slice &key, size_t charge, void *value)
     FinishErase(table_.Remove(old->key(), old->hash));
   }
 
-  return e;
+  return reinterpret_cast<Handle *>(e);
 }
 
 }  // namespace Tskydb
