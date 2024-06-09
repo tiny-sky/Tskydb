@@ -11,19 +11,28 @@ char *EncodeVarint32(char *dst, uint32_t v) {
     *ptr = 0x80 | v;
     v >>= 7, ++ptr;
   } while (v != 0);
-  *(ptr - 1) &= 0x7F;
+  *(ptr - 1) &= 0x7F; // Remove the 0X80 flag
   return reinterpret_cast<char *>(ptr);
 }
 
 void PutVarint32(std::string *dst, uint32_t v) {
   char buf[5];
-  char *ptr = EncodeVarint32(buf, v);
+  char *ptr = EncodeVarint32(buf, v);  
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 
 void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
   PutVarint32(dst, value.size());
   dst->append(value.data(), value.size());
+}
+
+int VarintLength(uint64_t v) {
+  int len = 1;
+  while (v >= 128) {
+    v >>= 7;
+    len++;
+  }
+  return len;
 }
 
 const char *GetVarint32PtrFallback(const char *p, const char *limit,
