@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/filter_policy.h"
+
 #include "util/hash.h"
 #include "util/slice.h"
 
@@ -10,19 +12,19 @@ static uint32_t BloomHash(const Slice &key) {
   return Hash(key.data(), key.size(), 0xbc9f1d34);
 }
 
-class BloomFilter {
+class BloomFilter : public FilterPolicy {
  public:
   explicit BloomFilter(int bits_per_key) : bits_per_key_(bits_per_key) {
-    k_ = static_cast<size_t>(bits_per_key_ * 0.69); // K = In2 * (m/n)
+    k_ = static_cast<size_t>(bits_per_key_ * 0.69);  // K = In2 * (m/n)
     if (k_ < 1) k_ = 1;
     if (k_ > 30) k_ = 30;
   }
 
-  void CreateFilter(const Slice* key, int n, std::string* dst) const {
+  void CreateFilter(const Slice *key, int n, std::string *dst) const override {
     size_t bits = n * bits_per_key_;
 
     if (bits < 64) bits = 64;
-    
+
     size_t bytes = (bits + 7) / 8;
     bits = bytes * 8;
 
@@ -42,7 +44,7 @@ class BloomFilter {
     }
   }
 
-  auto KeyMatch(const Slice& key, const Slice& bloom_filter) const -> bool {
+  bool KeyMayMatch(const Slice &key, const Slice &bloom_filter) const override {
     const size_t len = bloom_filter.size();
     if (len < 2) return false;
 
@@ -68,4 +70,8 @@ class BloomFilter {
   size_t bits_per_key_;
   size_t k_;
 };
+
+const FilterPolicy *NewBloomFilterPolicy(int bits_per_key) {
+  return new BloomFilter(bits_per_key);
+}
 }  // namespace Tskydb
