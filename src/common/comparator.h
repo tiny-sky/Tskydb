@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include <util/slice.h>
+#include "util/slice.h"
 
 namespace Tskydb {
 
