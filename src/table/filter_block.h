@@ -28,7 +28,7 @@ class FilterBlockBuilder {
 
   const FilterPolicy *policy_;
   std::string keys_;             // Flattened key contents
-  std::vector<size_t> start_;    // Starting index in keys_ of each key
+  std::vector<size_t> start_;    // Starting index in keys_ of each key (offset)
   std::string result_;           // Filter data computed so far
   std::vector<Slice> tmp_keys_;  // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;
