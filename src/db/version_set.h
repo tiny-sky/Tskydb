@@ -3,6 +3,7 @@
 #include <mutex>
 #include <string>
 
+#include "common/iterator.h"
 #include "options.h"
 #include "util/macros.h"
 #include "version_edit.h"
@@ -10,7 +11,20 @@
 namespace Tskydb {
 
 class TableCache;
+class Compaction;
 class InternalKeyComparator;
+
+// Returns true iff some file in "files" overlaps the user key range
+// [*smallest,*largest].
+// smallest==nullptr represents a key smaller than all keys in the DB.
+// largest==nullptr represents a key largest than all keys in the DB.
+// REQUIRES: If disjoint_sorted_files, files[] contains disjoint ranges
+//           in sorted order.
+bool SomeFileOverlapsRange(const InternalKeyComparator &icmp,
+                           bool disjoint_sorted_files,
+                           const std::vector<FileMetaData *> &files,
+                           const Slice *smallest_user_key,
+                           const Slice *largest_user_key);
 
 class Version {
  public:
@@ -28,6 +42,18 @@ class Version {
   // compaction may need to be triggered, false otherwise.
   bool UpdateStats(const Stats &stats);
 
+  // Return the level at which we should place a new memtable compaction
+  // result that covers the range [smallest_user_key,largest_user_key].
+  int PickLevelForMemTableOutput(const Slice &smallest_user_key,
+                                 const Slice &largest_user_key);
+
+  // Returns true iff some file in the specified level overlaps
+  // some part of [*smallest_user_key,*largest_user_key].
+  // smallest_user_key==nullptr represents a key smaller than all the DB's keys.
+  // largest_user_key==nullptr represents a key largest than all the DB's keys.
+  bool OverlapInLevel(int level, const Slice *smallest_user_key,
+                      const Slice *largest_user_key);
+
   void GetOverlappingInputs(
       int level,
       const InternalKey *begin,  // nullptr means before all keys
@@ -39,6 +65,19 @@ class Version {
 
  private:
   friend class VersionSet;
+  friend class Compaction;
+
+  class LevelFileNumIterator;
+
+  explicit Version(VersionSet* vset)
+      : vset_(vset),
+        next_(this),
+        prev_(this),
+        refs_(0),
+        file_to_compact_(nullptr),
+        file_to_compact_level_(-1),
+        compaction_score_(-1),
+        compaction_level_(-1) {}
 
   VersionSet *vset_;  // VersionSet to which this Version belongs
   Version *next_;     // Next version in linked list
@@ -52,18 +91,17 @@ class Version {
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
   double compaction_score_;
-  int size_compaction_level_;
+  int compaction_level_;
 
   // Next file to compact based on seek stats.
   FileMetaData *file_to_compact_;
-  int seek_compaction_level_;
+  int file_to_compact_level_;
 };
 
 class VersionSet {
  public:
   VersionSet(const std::string &dbname, const Options *options,
-             std::unique_ptr<TableCache> table_cache,
-             const InternalKeyComparator *cmp);
+             TableCache *table_cache, const InternalKeyComparator *cmp);
 
   DISALLOW_COPY(VersionSet);
 
@@ -81,7 +119,7 @@ class VersionSet {
 
   // Pick level and inputs for a new compaction.
   // Returns nullptr if there is no compaction to be done.
-  Compaction* PickCompaction();
+  Compaction *PickCompaction();
 
   // For GC
   // Add all files listed in any live version to *live.
@@ -113,14 +151,34 @@ class VersionSet {
     return (v->compaction_score_ >= 1) || (v->file_to_compact_ != nullptr);
   }
 
+  // Create an iterator that reads over the compaction inputs for "*c".
+  // The caller should delete the iterator when no longer needed.
+  Iterator *MakeInputIterator(Compaction *c);
+
  private:
+  class Builder;
+
   friend class Version;
+  friend class Compaction;
 
   // Stores the minimal range that covers all entries in inputs in
   // smallest, largest.
   void GetRange(const std::vector<FileMetaData *> &inputs,
                 InternalKey *smallest, InternalKey *largest);
 
+  // Stores the minimal range that covers all entries in inputs1 and inputs2
+  // in *smallest, *largest.
+  void GetRange2(const std::vector<FileMetaData *> &inputs1,
+                 const std::vector<FileMetaData *> &inputs2,
+                 InternalKey *smallest, InternalKey *largest);
+
+  // optimization : Add more files to input[0]
+  //
+  // input[0] : level
+  // input[1] : level + 1
+  //
+  // Try to add more input[0]
+  // without changing the input[1] layer
   void SetupOtherInputs(Compaction *c);
 
   Env *const env_;
@@ -151,13 +209,28 @@ class Compaction {
   // and "level+1" will be merged to produce a set of "level+1" files.
   int level() const { return level_; }
 
+  // Return the object that holds the edits to the descriptor done
+  // by this compaction.
+  VersionEdit *edit() { return &edit_; }
+
+  // Return the ith input file at "level()+which" ("which" must be 0 or 1).
+  FileMetaData *input(int which, int i) const { return inputs_[which][i]; }
+
+  // Is this a trivial compaction that can be implemented by just
+  // moving a single input file to the next level (no merging or splitting)
+  bool IsTrivialMove() const;
+
  private:
   friend class Version;
   friend class VersionSet;
 
   Compaction(const Options *options, int level);
 
-  int level_; // current compaction level
+  // State used to check for number of overlapping grandparent files
+  // (parent == level_ + 1, grandparent == level_ + 2)
+  std::vector<FileMetaData *> grandparents_;
+
+  int level_;  // current compaction level
   Version *input_version_;
   VersionEdit edit_;
 

@@ -3,8 +3,8 @@
 #include <set>
 #include <vector>
 
-#include "util/format.h"
 #include "keyformat.h"
+#include "util/format.h"
 
 namespace Tskydb {
 
@@ -40,7 +40,7 @@ class VersionEdit {
     new_files_.clear();
   };
 
-  void SetComparatorName(const Slice& name) {
+  void SetComparatorName(const Slice &name) {
     has_comparator_ = true;
     comparator_ = name.ToString();
   }
@@ -60,7 +60,7 @@ class VersionEdit {
     has_last_sequence_ = true;
     last_sequence_ = seq;
   }
-  void SetCompactPointer(int level, const InternalKey& key) {
+  void SetCompactPointer(int level, const InternalKey &key) {
     compact_pointers_.push_back(std::make_pair(level, key));
   }
 
