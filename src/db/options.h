@@ -1,8 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include "common/comparator.h"
+#include "common/filter_policy.h"
 #include "env.h"
-#include "util/Comparator.h"
 
 namespace Tskydb {
 class Comparator;
@@ -10,7 +11,7 @@ class Snapshot;
 
 struct Options {
   // Create an Options object with default values for all fields.
-  Options();
+  Options() : comparator(BytewiseComparator()), env(&Env()) {}
 
   // Parameters that affect behavior
   const Comparator *comparator;
@@ -29,6 +30,13 @@ struct Options {
 
   // If true, an error is raised if the database already exists.
   bool error_if_exists = false;
+
+  // If true, the implementation will do aggressive checking of the
+  // data it is processing and will stop early if it detects any
+  // errors.  This may have unforeseen ramifications: for example, a
+  // corruption of one DB entry may cause a large number of entries to
+  // become unreadable or for the entire DB to become unopenable.
+  bool paranoid_checks = false;
 
   // Parameters that affect performance
 
@@ -62,6 +70,11 @@ struct Options {
   // actual size of the unit read from disk may be smaller if
   // compression is enabled.  This parameter can be changed dynamically.
   size_t block_size = 4 * 1024;
+
+  // Number of keys between restart points for delta encoding of keys.
+  // This parameter can be changed dynamically.  Most clients should
+  // leave this parameter alone.
+  int block_restart_interval = 16;
 };
 
 struct ReadOptions {
