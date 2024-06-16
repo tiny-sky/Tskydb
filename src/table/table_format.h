@@ -72,8 +72,9 @@ struct BlockContents {
   bool heap_allocated;  // True iff caller should delete[] data.data()
 };
 
-// 1-byte type + 32-bit crc
-static const size_t kBlockTrailerSize = 5;
+// 32-bit crc
+// TODO : Introducing compression algorithms
+static const size_t kBlockTrailerSize = 4;
 
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
