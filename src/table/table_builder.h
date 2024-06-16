@@ -6,6 +6,7 @@
 #include "util/slice.h"
 
 namespace Tskydb {
+
 class TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
@@ -23,7 +24,27 @@ class TableBuilder {
   // flush any buffered key/value pairs to file.
   void Flush();
 
+  // Finish building the table.  Stops using the file passed to the
+  // constructor after this function returns.
+  Status Finish();
+
+  // Return non-ok iff some error has been detected.
+  Status status() const;
+
+  // Number of calls to Add() so far.
+  uint64_t NumEntries() const;
+
+  // Size of the file generated so far.  If invoked after a successful
+  // Finish() call, returns the size of the final generated file.
+  uint64_t FileSize() const;
+
+  void Close();
+
  private:
+  bool ok() const { return status().ok(); }
+  void WriteBlock(BlockBuilder *block, BlockHandle *handle);
+  void WriteRawBlock(const Slice &block_contents, BlockHandle *handle);
+
   struct Rep;
   Rep *rep_;
 };
