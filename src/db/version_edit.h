@@ -5,6 +5,7 @@
 
 #include "keyformat.h"
 #include "util/format.h"
+#include "util/status.h"
 
 namespace Tskydb {
 
@@ -24,26 +25,8 @@ class VersionEdit {
   VersionEdit() { Clear(); };
   ~VersionEdit() = default;
 
-  void Clear() {
-    comparator_.clear();
-    log_number_ = 0;
-    prev_log_number_ = 0;
-    last_sequence_ = 0;
-    next_file_number_ = 0;
-    has_comparator_ = false;
-    has_log_number_ = false;
-    has_prev_log_number_ = false;
-    has_next_file_number_ = false;
-    has_last_sequence_ = false;
-    compact_pointers_.clear();
-    deleted_files_.clear();
-    new_files_.clear();
-  };
+  void Clear();
 
-  void SetComparatorName(const Slice &name) {
-    has_comparator_ = true;
-    comparator_ = name.ToString();
-  }
   void SetLogNumber(uint64_t num) {
     has_log_number_ = true;
     log_number_ = num;
@@ -79,17 +62,18 @@ class VersionEdit {
     deleted_files_.insert(std::make_pair(level, file));
   }
 
+  void EncodeTo(std::string* dst) const;
+  Status DecodeFrom(const Slice& src);
+
  private:
   friend class VersionSet;
 
   typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;
 
-  std::string comparator_;
   uint64_t log_number_;
   uint64_t prev_log_number_;
   uint64_t next_file_number_;
   SequenceNumber last_sequence_;
-  bool has_comparator_;
   bool has_log_number_;
   bool has_prev_log_number_;
   bool has_next_file_number_;
