@@ -6,7 +6,9 @@
 #include <set>
 
 #include "common/iterator.h"
+#include "filename.h"
 #include "table/table_cache.h"
+#include "wal.h"
 
 namespace Tskydb {
 
@@ -28,6 +30,19 @@ static int64_t ExpandedCompactionByteSizeLimit(const Options *options) {
 // stop building a single file in a level->level+1 compaction.
 static int64_t MaxGrandParentOverlapBytes(const Options *options) {
   return 10 * options->max_file_size;
+}
+
+static double MaxBytesForLevel(int level) {
+  // Note: the result for level zero is not really used since we set
+  // the level-0 compaction threshold based on number of files.
+
+  // Result for both level-0 and level-1
+  double result = 10. * 1048576.0;
+  while (level > 1) {
+    result *= 10;
+    level--;
+  }
+  return result;
 }
 
 // Finds the largest key in a vector of files. Returns true if files is not
@@ -510,7 +525,7 @@ class VersionSet::Builder {
       std::vector<FileMetaData *>::const_iterator base_end = base_files.end();
       const FileSet *added_files = levels_[level].added_files;
       v->files_[level].reserve(base_files.size() + added_files->size());
-      
+
       // Guaranteed order
       for (const auto &added_file : *added_files) {
         for (std::vector<FileMetaData *>::const_iterator bpos =
@@ -663,6 +678,50 @@ bool Compaction::IsTrivialMove() const {
               MaxGrandParentOverlapBytes(vset->options_));
 }
 
+bool Compaction::IsBaseLevelForKey(const Slice &user_key) {
+  const Comparator *user_cmp = input_version_->vset_->icmp_.user_comparator();
+  for (int lvl = level_ + 2; lvl < config::kNumLevels; lvl++) {
+    const std::vector<FileMetaData *> &files = input_version_->files_[lvl];
+    while (level_ptrs_[lvl] < files.size()) {
+      FileMetaData *f = files[level_ptrs_[lvl]];
+      if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
+        // We've advanced far enough
+        if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
+          // Key falls in this file's range, so definitely not base level
+          return false;
+        }
+        break;
+      }
+      level_ptrs_[lvl]++;
+    }
+  }
+  return true;
+}
+
+bool Compaction::ShouldStopBefore(const Slice &internal_key) {
+  const VersionSet *vset = input_version_->vset_;
+  const InternalKeyComparator *icmp = &vset->icmp_;
+
+  while (grandparent_index_ < grandparents_.size() &&
+         icmp->Compare(internal_key,
+                       grandparents_[grandparent_index_]->largest.Encode()) >
+             0) {
+    if (seen_key_) {
+      overlapped_bytes_ += grandparents_[grandparent_index_]->file_size;
+    }
+    grandparent_index_++;
+  }
+  seen_key_ = true;
+
+  if (overlapped_bytes_ > MaxGrandParentOverlapBytes(vset->options_)) {
+    // Too much overlap for current output; start new output
+    overlapped_bytes_ = 0;
+    return true;
+  } else {
+    return false;
+  }
+}
+
 Status VersionSet::LogAndApply(VersionEdit *edit, std::mutex *mu) {
   // Maintaining VersionSet
   if (edit->has_log_number_) {
@@ -680,7 +739,90 @@ Status VersionSet::LogAndApply(VersionEdit *edit, std::mutex *mu) {
   edit->SetLastSequence(last_sequence_);
 
   Version *v = new Version(this);
-  {}
+  {
+    Builder builder(this, current_);
+    builder.Apply(edit);
+    builder.SaveTo(v);
+  }
+  Finalize(v);
+
+  std::string new_manifest_file;
+  Status s;
+  if (descriptor_log_ == nullptr) {
+    assert(descriptor_file_ == nullptr);
+    new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
+    s = env_->NewWritableFile(new_manifest_file, &descriptor_file_);
+    if (s.ok()) {
+      descriptor_log_ = new Wal(descriptor_file_);
+      s = WriteSnapshot(descriptor_log_);
+    }
+  }
+}
+
+void VersionSet::Finalize(Version *v) {
+  // Precomputed best level for next compaction
+  int best_level = -1;
+  double best_score = -1;
+
+  for (int level = 0; level < config::kNumLevels - 1; level++) {
+    double score;
+    if (level == 0) {
+      // We treat level-0 specially by bounding the number of files
+      // instead of number of bytes for two reasons:
+      //
+      // (1) With larger write-buffer sizes, it is nice not to do too
+      // many level-0 compactions.
+      //
+      // (2) The files in level-0 are merged on every read and
+      // therefore we wish to avoid too many files when the individual
+      // file size is small (perhaps because of a small write-buffer
+      // setting, or very high compression ratios, or lots of
+      // overwrites/deletions).
+      score = v->files_[level].size() /
+              static_cast<double>(config::kL0_CompactionTrigger);
+    } else {
+      // Compute the ratio of current size to size limit.
+      const uint64_t level_bytes = TotalFileSize(v->files_[level]);
+      score = static_cast<double>(level_bytes) / MaxBytesForLevel(level);
+    }
+
+    if (score > best_score) {
+      best_level = level;
+      best_score = score;
+    }
+  }
+
+  v->compaction_level_ = best_level;
+  v->compaction_score_ = best_score;
+}
+
+Status VersionSet::WriteSnapshot(Wal *log) {
+  // TODO: Break up into multiple records to reduce memory usage on recovery?
+
+  // Save metadata
+  VersionEdit edit;
+
+  // Save compaction pointers
+  for (int level = 0; level < config::kNumLevels; level++) {
+    if (!compact_pointer_[level].empty()) {
+      InternalKey key;
+      key.DecodeFrom(compact_pointer_[level]);
+      edit.SetCompactPointer(level, key);
+    }
+  }
+
+  // Save files
+  for (int level = 0; level < config::kNumLevels; level++) {
+    const std::vector<FileMetaData *> &files = current_->files_[level];
+    for (size_t i = 0; i < files.size(); i++) {
+      const FileMetaData *f = files[i];
+      edit.AddFile(level, f->number, f->file_size, f->smallest, f->largest);
+    }
+  }
+
+  std::string record;
+  edit.EncodeTo(&record);
+  return log->AddRecord(record);
 }
 
 }  // namespace Tskydb

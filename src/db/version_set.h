@@ -10,6 +10,7 @@
 
 namespace Tskydb {
 
+class Wal;
 class TableCache;
 class Compaction;
 class InternalKeyComparator;
@@ -69,7 +70,7 @@ class Version {
 
   class LevelFileNumIterator;
 
-  explicit Version(VersionSet* vset)
+  explicit Version(VersionSet *vset)
       : vset_(vset),
         next_(this),
         prev_(this),
@@ -161,6 +162,13 @@ class VersionSet {
   friend class Version;
   friend class Compaction;
 
+  // Choose best_level
+  // Calculate compaction_score_
+  void Finalize(Version *v);
+
+  // Save current contents to *log
+  Status WriteSnapshot(Wal *log);
+
   // Stores the minimal range that covers all entries in inputs in
   // smallest, largest.
   void GetRange(const std::vector<FileMetaData *> &inputs,
@@ -192,6 +200,8 @@ class VersionSet {
   uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
+  WritableFile *descriptor_file_;
+  Wal *descriptor_log_;
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version *current_;
 
@@ -216,9 +226,24 @@ class Compaction {
   // Return the ith input file at "level()+which" ("which" must be 0 or 1).
   FileMetaData *input(int which, int i) const { return inputs_[which][i]; }
 
+  int num_input_files(int which) const { return inputs_[which].size(); }
+
+  // Maximum size of files to build during this compaction.
+  uint64_t MaxOutputFileSize() const { return max_output_file_size_; }
+
   // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
+
+  // Detect the number of bytes overlapped with the grandparent layer
+  // When it is greater than MaxGrandParentOverlapBytes, it returns true
+  // means that a new output file needs to be replaced.
+  bool ShouldStopBefore(const Slice &internal_key);
+
+  // Returns true if the information we have available guarantees that
+  // the compaction is producing data in "level+1" for which no data exists
+  // in levels greater than "level+1".
+  bool IsBaseLevelForKey(const Slice &user_key);
 
  private:
   friend class Version;
@@ -231,10 +256,27 @@ class Compaction {
   std::vector<FileMetaData *> grandparents_;
 
   int level_;  // current compaction level
+  uint64_t max_output_file_size_;
   Version *input_version_;
   VersionEdit edit_;
 
+  // For ShouldStopBefore
+  // State used to check for number of overlapping grandparent files
+  // (parent == level_ + 1, grandparent == level_ + 2)
+  std::vector<FileMetaData *> grandparents_;
+  size_t grandparent_index_;  // Index in grandparent_starts_
+  bool seen_key_;             // Some output key has been seen
+  int64_t overlapped_bytes_;  // Bytes of overlap between current output
+                              // and grandparent files
+
   // Each compaction reads inputs from "level_" and "level_+1"
   std::vector<FileMetaData *> inputs_[2];  // The two sets of inputs
+
+  // State for implementing IsBaseLevelForKey
+  // level_ptrs_ holds indices into input_version_->levels_: our state
+  // is that we are positioned at one of the file ranges for each
+  // higher level than the ones involved in this compaction (i.e. for
+  // all L >= level_ + 2).
+  size_t level_ptrs_[config::kNumLevels];
 };
 }  // namespace Tskydb
