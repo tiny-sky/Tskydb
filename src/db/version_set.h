@@ -235,6 +235,9 @@ class Compaction {
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
 
+  // Add all inputs to this compaction as delete operations to *edit.
+  void AddInputDeletions(VersionEdit *edit);
+
   // Detect the number of bytes overlapped with the grandparent layer
   // When it is greater than MaxGrandParentOverlapBytes, it returns true
   // means that a new output file needs to be replaced.

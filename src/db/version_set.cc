@@ -20,16 +20,25 @@ static int64_t TotalFileSize(const std::vector<FileMetaData *> &files) {
   return sum;
 }
 
+static size_t TargetFileSize(const Options *options) {
+  return options->max_file_size;
+}
+
 // Due to the expansion of input[0],
 // there is a certain limit on the maximum number of expandable bytes.
 static int64_t ExpandedCompactionByteSizeLimit(const Options *options) {
-  return 25 * options->max_file_size;
+  return 10 * TargetFileSize(options);
 }
 
 // Maximum bytes of overlaps in grandparent (i.e., level+2) before we
 // stop building a single file in a level->level+1 compaction.
 static int64_t MaxGrandParentOverlapBytes(const Options *options) {
-  return 10 * options->max_file_size;
+  return 25 * TargetFileSize(options);
+}
+
+static uint64_t MaxFileSizeForLevel(const Options *options, int level) {
+  // We could vary per level to reduce number of files?
+  return TargetFileSize(options);
 }
 
 static double MaxBytesForLevel(int level) {
@@ -637,7 +646,8 @@ void VersionSet::SetupOtherInputs(Compaction *c) {
                                    &c->grandparents_);
   }
 
-  // @?
+  // The largest key involved in this compression
+  // The next compaction can start after the current largest
   compact_pointer_[level] = largest.Encode().ToString();
   c->edit_.SetCompactPointer(level, largest);
 }
@@ -668,6 +678,24 @@ Iterator *VersionSet::MakeInputIterator(Compaction *c) {
   }
 }
 
+Compaction::Compaction(const Options *options, int level)
+    : level_(level),
+      max_output_file_size_(MaxFileSizeForLevel(options, level)),
+      input_version_(nullptr),
+      grandparent_index_(0),
+      seen_key_(false),
+      overlapped_bytes_(0) {
+  for (int i = 0; i < config::kNumLevels; i++) {
+    level_ptrs_[i] = 0;
+  }
+}
+
+Compaction::~Compaction() {
+  if (input_version_ != nullptr) {
+    input_version_->Unref();
+  }
+}
+
 bool Compaction::IsTrivialMove() const {
   const VersionSet *vset = input_version_->vset_;
   // Avoid a move if there is lots of overlapping grandparent data.
@@ -676,6 +704,14 @@ bool Compaction::IsTrivialMove() const {
   return (inputs_[0].size() == 1 && inputs_[1].size() == 0 &&
           TotalFileSize(grandparents_) <=
               MaxGrandParentOverlapBytes(vset->options_));
+}
+
+void Compaction::AddInputDeletions(VersionEdit *edit) {
+  for (int which = 0; which < 2; which++) {
+    for (size_t i = 0; i < inputs_[which].size(); i++) {
+      edit->RemoveFile(level_ + which, inputs_[which][i]->number);
+    }
+  }
 }
 
 bool Compaction::IsBaseLevelForKey(const Slice &user_key) {
