@@ -29,8 +29,13 @@ static const int kReadBytesPeriod = 1048576;
 
 // The type of operation this time
 enum ValueType { kTypeDeletion = 0x0, kTypeValue = 0x1 };
+static const ValueType kValueTypeForSeek = kTypeValue;
 
 typedef uint64_t SequenceNumber;
+
+// We leave eight bits empty at the bottom so a type and sequence#
+// can be packed together into 64-bits.
+static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 namespace log {
 
