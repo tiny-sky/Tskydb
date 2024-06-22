@@ -1,7 +1,9 @@
 #pragma once
 
-#include <string>
 #include <stdint.h>
+#include <string>
+
+#include "env.h"
 
 namespace Tskydb {
 
@@ -59,5 +61,10 @@ std::string OldInfoLogFileName(const std::string &dbname);
 // filename was successfully parsed, returns true.  Else return false.
 bool ParseFileName(const std::string &filename, uint64_t *number,
                    FileType *type);
+
+// Make the CURRENT file point to the descriptor file with the
+// specified number.
+Status SetCurrentFile(Env *env, const std::string &dbname,
+                      uint64_t descriptor_number);
 
 }  // namespace Tskydb

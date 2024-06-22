@@ -14,6 +14,27 @@
 
 namespace Tskydb {
 
+static Status DoWriteStringToFile(Env *env, const Slice &data,
+                                  const std::string &fname, bool should_sync) {
+  WritableFile *file;
+  Status s = env->NewWritableFile(fname, &file);
+  if (!s.ok()) {
+    return s;
+  }
+  s = file->Append(data);
+  if (s.ok() && should_sync) {
+    s = file->Sync();
+  }
+  if (s.ok()) {
+    s = file->Close();
+  }
+  delete file;  // Will auto-close if we did not close above
+  if (!s.ok()) {
+    env->RemoveFile(fname);
+  }
+  return s;
+}
+
 bool ConsumeDecimalNumber(Slice *in, uint64_t *val) {
   // Constants that will be optimized away.
   constexpr const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
@@ -47,9 +68,10 @@ bool ConsumeDecimalNumber(Slice *in, uint64_t *val) {
   return digits_consumed != 0;
 }
 
-// A utility routine: write "data" to the named file and Sync() it.
 Status WriteStringToFileSync(Env *env, const Slice &data,
-                             const std::string &fname);
+                             const std::string &fname) {
+  return DoWriteStringToFile(env, data, fname, true);
+}
 
 static std::string MakeFileName(const std::string &dbname, uint64_t number,
                                 const char *suffix) {
@@ -152,6 +174,24 @@ bool ParseFileName(const std::string &filename, uint64_t *number,
     *number = num;
   }
   return true;
+}
+
+Status SetCurrentFile(Env *env, const std::string &dbname,
+                      uint64_t descriptor_number) {
+  // Remove leading "dbname/" and add newline to manifest file name
+  std::string manifest = DescriptorFileName(dbname, descriptor_number);
+  Slice contents = manifest;
+  assert(contents.starts_with(dbname + "/"));
+  contents.remove_prefix(dbname.size() + 1);
+  std::string tmp = TempFileName(dbname, descriptor_number);
+  Status s = WriteStringToFileSync(env, contents.ToString() + "\n", tmp);
+  if (s.ok()) {
+    s = env->RenameFile(tmp, CurrentFileName(dbname));
+  }
+  if (!s.ok()) {
+    env->RemoveFile(tmp);
+  }
+  return s;
 }
 
 }  // namespace Tskydb
