@@ -54,6 +54,29 @@ class Iterator {
 
   // If an error has occurred, return it.  Else return an ok status.
   virtual Status status() const = 0;
+
+  using CleanupFunction = void (*)(void *arg1, void *arg2);
+  void RegisterCleanup(CleanupFunction function, void *arg1, void *arg2);
+
+ private:
+  // Cleanup functions are stored in a single-linked list.
+  // The list's head node is inlined in the iterator.
+  struct CleanupNode {
+    // True if the node is not used. Only head nodes might be unused.
+    bool IsEmpty() const { return function == nullptr; }
+    // Invokes the cleanup function.
+    void Run() {
+      assert(function != nullptr);
+      (*function)(arg1, arg2);
+    }
+
+    // The head node is used if the function pointer is not null.
+    CleanupFunction function;
+    void *arg1;
+    void *arg2;
+    CleanupNode *next;
+  };
+  CleanupNode cleanup_head_;
 };
 
 // Return an empty iterator with the specified status.
