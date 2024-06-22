@@ -7,6 +7,7 @@
 
 #include "common/iterator.h"
 #include "filename.h"
+#include "table/merger.h"
 #include "table/table_cache.h"
 #include "wal.h"
 
@@ -364,7 +365,7 @@ void VersionSet::AddLiveFiles(std::set<uint64_t> *live) {
   for (Version *v = dummy_versions_.next_; v != &dummy_versions_;
        v = v->next_) {
     for (int level = 0; level < config::kNumLevels; level++) {
-      const auto &files = v->files_[level];
+      const std::vector<FileMetaData *> &files = v->files_[level];
       for (size_t i = 0; i < files.size(); i++) {
         live->insert(files[i]->number);
       }
@@ -676,6 +677,10 @@ Iterator *VersionSet::MakeInputIterator(Compaction *c) {
       }
     }
   }
+  assert(num <= space);
+  Iterator *result = NewMergingIterator(&icmp_, list, num);
+  delete[] list;
+  return result;
 }
 
 Compaction::Compaction(const Options *options, int level)
@@ -792,6 +797,29 @@ Status VersionSet::LogAndApply(VersionEdit *edit, std::mutex *mu) {
       descriptor_log_ = new Wal(descriptor_file_);
       s = WriteSnapshot(descriptor_log_);
     }
+  }
+
+  // Unlock during expensive MANIFEST log write
+  {
+    mu->unlock();
+
+    // Write new record to MANIFEST log
+    if (s.ok()) {
+      std::string record;
+      edit->EncodeTo(&record);
+      s = descriptor_log_->AddRecord(record);
+      if (s.ok()) {
+        s = descriptor_file_->Sync();
+      }
+    }
+
+    // If we just created a new descriptor file, install it by writing a
+    // new CURRENT file that points to it.
+    if (s.ok() && !new_manifest_file.empty()) {
+      s = SetCurrentFile(env_, dbname_, manifest_file_number_);
+    }
+
+    mu->lock();
   }
 }
 

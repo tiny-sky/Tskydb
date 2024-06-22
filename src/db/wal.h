@@ -15,6 +15,8 @@ namespace crc32c = leveldb::crc32c;
 
 using namespace Tskydb::log;
 
+// WritebaleFile is a specific write file class
+// Wal divides log files into blocks
 class Wal {
 
  public:
