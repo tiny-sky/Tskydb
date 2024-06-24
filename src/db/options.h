@@ -65,6 +65,13 @@ struct Options {
   // initially populating a large database.
   size_t max_file_size = 2 * 1024 * 1024;
 
+  // Control over blocks (user data is stored in a set of blocks, and
+  // a block is the unit of reading from disk).
+
+  // If non-null, use the specified cache for blocks.
+  // If null, leveldb will automatically create and use an 8MB internal cache.
+  LRUCache *block_cache = nullptr;
+
   // Approximate size of user data packed per block.  Note that the
   // block size specified here corresponds to uncompressed data.  The
   // actual size of the unit read from disk may be smaller if

@@ -29,19 +29,19 @@ bool SomeFileOverlapsRange(const InternalKeyComparator &icmp,
 
 class Version {
  public:
-  struct Stats {
-    FileMetaData *file;
-    int file_level;
+  struct GetStats {
+    FileMetaData *seek_file;
+    int seek_file_level;
   };
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
   Status Get(const ReadOptions &, const LookupKey &key, std::string *val,
-             Stats *stats);
+             GetStats *stats);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
-  bool UpdateStats(const Stats &stats);
+  bool UpdateStats(const GetStats &stats);
 
   // Return the level at which we should place a new memtable compaction
   // result that covers the range [smallest_user_key,largest_user_key].
@@ -69,6 +69,14 @@ class Version {
   friend class Compaction;
 
   class LevelFileNumIterator;
+
+  // Call func(arg, level, f) for every file that overlaps user_key in
+  // order from newest to oldest.  If an invocation of func returns
+  // false, makes no more calls.
+  //
+  // REQUIRES: user portion of internal_key == user_key.
+  void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
+                          bool (*func)(void*, int, FileMetaData*));
 
   explicit Version(VersionSet *vset)
       : vset_(vset),
