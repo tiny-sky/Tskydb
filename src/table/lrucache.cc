@@ -59,7 +59,8 @@ void HashTable::Resize() {
   length_ = new_length;
 }
 
-LRUCache::LRUCache(size_t capacity) : capacity_(capacity), usage_(0) {
+LRUCache::LRUCache(size_t capacity)
+    : capacity_(capacity), usage_(0), last_id_(0) {
   lru_.next = &lru_;
   lru_.prev = &lru_;
   in_use_.next = &in_use_;
@@ -112,6 +113,11 @@ void LRUCache::Erase(const Slice &key) {
   FinishErase(table_.Remove(key, hash));
 }
 
+uint64_t LRUCache::NewId() {
+  std::lock_guard<std::mutex> guard(latch_);
+  return ++(last_id_);
+}
+
 void LRUCache::LRU_Remove(LRUNode *e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
@@ -139,7 +145,8 @@ void LRUCache::Release(LRUNode *node) {
   UnPin(node);
 }
 
-auto LRUCache::Insert(const Slice &key, size_t charge, void *value)
+auto LRUCache::Insert(const Slice &key, void *value, size_t charge,
+                      void (*deleter)(const Slice &key, void *value))
     -> Handle * {
   std::lock_guard<std::mutex> guard(latch_);
 
@@ -147,6 +154,7 @@ auto LRUCache::Insert(const Slice &key, size_t charge, void *value)
   LRUNode *e =
       reinterpret_cast<LRUNode *>(malloc(sizeof(LRUNode) + key.size()));
   e->value = value;
+  e->deleter = deleter;
   e->key_length = key.size();
   e->hash = hash;
   e->charge = charge;

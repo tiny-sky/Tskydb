@@ -14,6 +14,7 @@ static const int kNumShards = 1 << kNumShardBits;
 
 struct LRUNode {
   void *value;
+  void (*deleter)(const Slice &, void *value);
   LRUNode *next_hash;
   LRUNode *next;
   LRUNode *prev;
@@ -63,7 +64,8 @@ class LRUCache {
 
   void SetCapacity(size_t capacity) { capacity_ = capacity; }
 
-  auto Insert(const Slice &key, size_t charge, void *value) -> Handle *;
+  Handle *Insert(const Slice &key, void *value, size_t charge,
+                 void (*deleter)(const Slice &key, void *value));
 
   auto Lookup(const Slice &key) -> Handle *;
 
@@ -72,6 +74,8 @@ class LRUCache {
   void Erase(const Slice &key);
 
   auto FinishErase(LRUNode *e) -> bool;
+
+  uint64_t NewId();
 
   void *Value(Handle *handle) {
     return reinterpret_cast<LRUNode *>(handle)->value;
@@ -94,5 +98,6 @@ class LRUCache {
   LRUNode in_use_;
   HashTable table_;
   std::mutex latch_;
+  uint64_t last_id_;
 };
 }  // namespace Tskydb
