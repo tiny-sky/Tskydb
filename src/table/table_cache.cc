@@ -5,6 +5,9 @@
 #include "lrucache.h"
 #include "options.h"
 #include "util/encoding.h"
+#include "filter_block.h"
+#include "table_format.h"
+#include "table.h"
 
 namespace Tskydb {
 
@@ -33,6 +36,20 @@ TableCache::TableCache(const std::string &dbname, const Options &options,
       cache_(new LRUCache(entries)) {}
 
 TableCache::~TableCache() { delete cache_; }
+
+Status TableCache::Get(const ReadOptions &options, uint64_t file_number,
+                       uint64_t file_size, const Slice &k, void *arg,
+                       void (*handle_result)(void *, const Slice &,
+                                             const Slice &)) {
+  LRUCache::Handle *handle = nullptr;
+  Status s = FindTable(file_number, file_size, &handle);
+  if (s.ok()) {
+    Table *t = reinterpret_cast<TableAndFile *>(cache_->Value(handle))->table;
+    s = t->InternalGet(options, k, arg, handle_result);
+    cache_->Release(reinterpret_cast<LRUNode*>(handle));
+  }
+  return s;
+}
 
 Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
                              LRUCache::Handle **handle) {
