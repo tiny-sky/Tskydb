@@ -72,6 +72,13 @@ Status Env::NewRandomAccessFile(const std::string &filename,
   return status;
 }
 
+Status Env::RenameFile(const std::string &from, const std::string &to) {
+  if (std::rename(from.c_str(), to.c_str()) != 0) {
+    return PosixError(from, errno);
+  }
+  return Status::OK();
+}
+
 void Env::BackgroundThreadMain() {
   while (true) {
     bg_work_mutex_.lock();

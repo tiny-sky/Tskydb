@@ -75,8 +75,8 @@ class Version {
   // false, makes no more calls.
   //
   // REQUIRES: user portion of internal_key == user_key.
-  void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
-                          bool (*func)(void*, int, FileMetaData*));
+  void ForEachOverlapping(Slice user_key, Slice internal_key, void *arg,
+                          bool (*func)(void *, int, FileMetaData *));
 
   explicit Version(VersionSet *vset)
       : vset_(vset),
@@ -169,6 +169,8 @@ class VersionSet {
 
   friend class Version;
   friend class Compaction;
+
+  void AppendVersion(Version *v);
 
   // Choose best_level
   // Calculate compaction_score_

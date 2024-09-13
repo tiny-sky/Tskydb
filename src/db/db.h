@@ -57,6 +57,23 @@ class DB {
 
  private:
   struct Writer;
+  struct CompactionState;
+
+  // Per level compaction stats.  stats_[level] stores the stats for
+  // compactions that produced data for the specified "level".
+  struct CompactionStats {
+    CompactionStats() : micros(0), bytes_read(0), bytes_written(0) {}
+
+    void Add(const CompactionStats &c) {
+      this->micros += c.micros;
+      this->bytes_read += c.bytes_read;
+      this->bytes_written += c.bytes_written;
+    }
+
+    int64_t micros;
+    int64_t bytes_read;
+    int64_t bytes_written;
+  };
 
   // Loop to confirm the status of database
   // before writing data to the write-ahead log file
@@ -77,19 +94,43 @@ class DB {
 
   // Compaction
   // =================================
+  // Core compression process
+  Status DoCompactionWork(CompactionState *compact);
   // Background Compression operations
   void BackgroundCompaction();
-
   // Possibly schedule compression operations
   void MaybeScheduleCompaction();
-
   // Compact the in-memory write buffer to disk.
   void CompactMemTable();
+  // immutable -> sstable level 0
+  Status WriteLevel0Table(MemTable *mem, VersionEdit *edit, Version *base);
+  // Complete the table construction through builder
+  Status FinishCompactionOutputFile(CompactionState *compact, Iterator *input);
+  // Create a Table File and builder helper function
+  Status OpenCompactionOutputFile(CompactionState* compact);
+  // Compress level file to level + 1 file
+  // Delete level file
+  // Added to level + 1
+  Status InstallCompactionResults(CompactionState* compact);
+
 
   // Background Work
   // =================================
   static void BGWork(void *db);
   void BackgroundCall();
+  void RecordBackgroundError(const Status &s);
+
+  // BuildTable
+  // =================================
+  Status BuildTable(const std::string &dbname, Env *env, const Options &options,
+                    TableCache *table_cache, Iterator *iter,
+                    FileMetaData *meta);
+
+  // Helper
+  // =================================
+  const Comparator *user_comparator() const {
+    return internal_comparator_.user_comparator();
+  }
 
   // Constant after construction
   Env *const env_;
@@ -98,11 +139,14 @@ class DB {
   const Options options_;
   const std::string dbname_;
 
+  TableCache *const table_cache_;
+
   std::mutex mutex_;
   MemTable *mem_;
   MemTable *imm_;
+  std::atomic<bool> has_imm_;
 
-  std::unique_ptr<WritableFile> logfile_;
+  WritableFile *logfile_;
   uint64_t logfile_number_;
   std::unique_ptr<Wal> log_;
 
@@ -118,12 +162,18 @@ class DB {
 
   std::unique_ptr<VersionSet> versions_;
 
+  SnapshotList snapshots_;
+
   // Close the database
   std::atomic<bool> shutting_down_;
   // Background task completion signal
   CondVar background_work_finished_signal_;
-
+  // background error
+  Status bg_error_;
   // Has a background compaction been scheduled or is running?
   bool background_compaction_scheduled_;
+
+  // Other
+  CompactionStats stats_[config::kNumLevels];
 };
 }  // namespace Tskydb

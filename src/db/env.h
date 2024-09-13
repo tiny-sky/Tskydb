@@ -41,7 +41,10 @@ class Env {
   // Delete Files
   Status RemoveFile(const std::string &filename);
   // Get File size by filename
-  Status GetFileSize(const std::string& filename, uint64_t* size);
+  Status GetFileSize(const std::string &filename, uint64_t *size);
+
+  // 将文件 src 重命名为 target.
+  Status RenameFile(const std::string &from, const std::string &to);
 
   // Get current time
   uint64_t NowMicros();
