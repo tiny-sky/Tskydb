@@ -2,12 +2,12 @@
 
 #include "common/iterator.h"
 #include "filename.h"
+#include "filter_block.h"
 #include "lrucache.h"
 #include "options.h"
-#include "util/encoding.h"
-#include "filter_block.h"
-#include "table_format.h"
 #include "table.h"
+#include "table_format.h"
+#include "util/encoding.h"
 
 namespace Tskydb {
 
@@ -15,6 +15,13 @@ struct TableAndFile {
   RandomAccessFile *file;
   Table *table;
 };
+
+static void DeleteEntry(const Slice &key, void *value) {
+  TableAndFile *tf = reinterpret_cast<TableAndFile *>(value);
+  delete tf->table;
+  delete tf->file;
+  delete tf;
+}
 
 void TableCache::Evict(uint64_t file_number) {
   char buf[sizeof(file_number)];
@@ -46,7 +53,7 @@ Status TableCache::Get(const ReadOptions &options, uint64_t file_number,
   if (s.ok()) {
     Table *t = reinterpret_cast<TableAndFile *>(cache_->Value(handle))->table;
     s = t->InternalGet(options, k, arg, handle_result);
-    cache_->Release(reinterpret_cast<LRUNode*>(handle));
+    cache_->Release(reinterpret_cast<LRUNode *>(handle));
   }
   return s;
 }
@@ -65,7 +72,28 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
     RandomAccessFile *file = nullptr;
     Table *table = nullptr;
     s = env_->NewRandomAccessFile(fname, &file);
+
+    // 尝试使用旧文件格式打开
+    if (!s.ok()) {
+      std::string old_fname = SSTTableFileName(dbname_, file_number);
+      if (env_->NewRandomAccessFile(old_fname, &file).ok()) {
+        s = Status::OK();
+      }
+
+      if (s.ok()) {
+        s = Table::Open(options_, file, file_size, &table);
+        if (s.ok()) {
+          TableAndFile *tf = new TableAndFile;
+          tf->file = file;
+          tf->table = table;
+          *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
+        } else {
+          delete file;
+        }
+      }
+    }
   }
+  return s;
 }
 
 Iterator *TableCache::NewIterator(const ReadOptions &options,

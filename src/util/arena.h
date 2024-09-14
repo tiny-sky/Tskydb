@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <atomic>
 
 #include "util/macros.h"
 
@@ -18,6 +19,10 @@ class Arena {
 
   auto AllocateAligned(size_t bytes) -> char *;
 
+  size_t MemoryUsage() const {
+    return memory_usage_.load(std::memory_order_relaxed);
+  }
+
  private:
   char *AllocateFallback(size_t bytes);
   char *AllocateNewBlock(size_t block_bytes);
@@ -27,7 +32,7 @@ class Arena {
 
   std::vector<char *> blocks_;
 
-  size_t memory_usage_;
+  std::atomic<size_t> memory_usage_;
 };
 
 inline auto Arena::Allocate(size_t bytes) -> char * {

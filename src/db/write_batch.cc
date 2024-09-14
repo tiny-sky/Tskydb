@@ -1,5 +1,5 @@
 #include "write_batch.h"
-#include "memtable/memtable.h"
+#include "table/memtable.h"
 #include "util/encoding.h"
 #include "util/format.h"
 #include "util/slice.h"

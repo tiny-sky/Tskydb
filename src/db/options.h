@@ -5,6 +5,8 @@
 #include "common/filter_policy.h"
 #include "env.h"
 
+#include <leveldb/cache.h>
+
 namespace Tskydb {
 class Comparator;
 class Snapshot;

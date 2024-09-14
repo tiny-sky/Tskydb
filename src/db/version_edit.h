@@ -10,10 +10,10 @@
 namespace Tskydb {
 
 struct FileMetaData {
-  FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
+  FileMetaData() : refs(0), allowed_seeks(1 << 10), file_size(0) {}
 
   int refs;
-  int allowed_seeks;  // ?
+  int allowed_seeks;
   uint64_t number;
   uint64_t file_size;    // File size in bytes
   InternalKey smallest;  // Smallest internal key served by table
@@ -79,7 +79,7 @@ class VersionEdit {
   bool has_next_file_number_;
   bool has_last_sequence_;
 
-  std::vector<std::pair<int, InternalKey>> compact_pointers_;  // ?
+  std::vector<std::pair<int, InternalKey>> compact_pointers_;
   DeletedFileSet deleted_files_;
   std::vector<std::pair<int, FileMetaData>> new_files_;
 };

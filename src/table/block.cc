@@ -164,9 +164,11 @@ class Block::Iter : public Iterator {
   void Prev() override {
     assert(Valid());
 
-    const uint32_t origin = current_;
-    while (GetRestartPoint(restart_index_) >= origin) {
+    // Scan backwards to a restart point before current_
+    const uint32_t original = current_;
+    while (GetRestartPoint(restart_index_) >= original) {
       if (restart_index_ == 0) {
+        // No more entries
         current_ = restarts_;
         restart_index_ = num_restarts_;
         return;
@@ -175,6 +177,61 @@ class Block::Iter : public Iterator {
     }
 
     SeekToRestartPoint(restart_index_);
+    do {
+      // Loop until end of current entry hits the start of original entry
+    } while (ParseNextKey() && NextEntryOffset() < original);
+  }
+
+  void Seek(const Slice &target) override {
+    uint32_t left = 0;
+    uint32_t right = num_restarts_ - 1;
+    int current_key_compare = 0;
+
+    // optimization : 通过当前键与目标键的比较调整二分大小
+
+    // 二分查找找到最近的 restart point
+    while (left < right) {
+      uint32_t mid = (left + right + 1) / 2;
+      uint32_t region_offset = GetRestartPoint(mid);
+      uint32_t shared, non_shared, value_length;
+      const char *key_ptr =
+          DecodeEntry(data_ + region_offset, data_ + restarts_, &shared,
+                      &non_shared, &value_length);
+      if (key_ptr == nullptr || (shared != 0)) {
+        CorruptionError();
+        return;
+      }
+      Slice mid_key(key_ptr, non_shared);
+      if (Compare(mid_key, target) < 0) {
+        left = mid;
+      } else {
+        right = mid - 1;
+      }
+    }
+
+    bool skip_seek = left == restart_index_ && current_key_compare < 0;
+    if (!skip_seek) {
+      SeekToRestartPoint(left);
+    }
+
+    // 线性查找直到找到 >= target 的键
+    while (ParseNextKey()) {
+      if (Compare(key_, target) >= 0) {
+        return;
+      }
+    }
+  }
+
+  void SeekToFirst() override {
+    SeekToRestartPoint(0);
+    ParseNextKey();
+  }
+
+  void SeekToLast() override {
+    SeekToRestartPoint(num_restarts_ - 1);
+    while (ParseNextKey() && NextEntryOffset() < restarts_) {
+      // Keep skipping
+    }
   }
 
  private:
@@ -186,20 +243,10 @@ class Block::Iter : public Iterator {
     value_.clear();
   }
 
-  uint32_t GetRestartPoint(uint32_t index) {
-    assert(index < num_restarts_);
-    return DecodeFixed32(data_ + restarts_ + index * sizeof(uint32_t));
-  }
-
-  // Return the offset in data_ just past the end of the current entry.
-  inline uint32_t NextEntryOffset() const {
-    return (value_.data() + value_.size()) - data_;
-  }
-
   bool ParseNextKey() {
     current_ = NextEntryOffset();
     const char *p = data_ + current_;
-    const char *limit = data_ + restarts_;
+    const char *limit = data_ + restarts_;  // Restarts come right after data
     if (p >= limit) {
       // No more entries to return.  Mark as invalid.
       current_ = restarts_;
@@ -217,14 +264,36 @@ class Block::Iter : public Iterator {
       key_.resize(shared);
       key_.append(p, non_shared);
       value_ = Slice(p + non_shared, value_length);
-
-      // Read the data at index offset through the pointer
       while (restart_index_ + 1 < num_restarts_ &&
              GetRestartPoint(restart_index_ + 1) < current_) {
         ++restart_index_;
       }
       return true;
     }
+  }
+
+  inline int Compare(const Slice &a, const Slice &b) const {
+    return comparator_->Compare(a, b);
+  }
+
+  // Return the offset in data_ just past the end of the current entry.
+  inline uint32_t NextEntryOffset() const {
+    return (value_.data() + value_.size()) - data_;
+  }
+
+  uint32_t GetRestartPoint(uint32_t index) {
+    assert(index < num_restarts_);
+    return DecodeFixed32(data_ + restarts_ + index * sizeof(uint32_t));
+  }
+
+  void SeekToRestartPoint(uint32_t index) {
+    key_.clear();
+    restart_index_ = index;
+    // current_ will be fixed by ParseNextKey();
+
+    // ParseNextKey() starts at the end of value_, so set value_ accordingly
+    uint32_t offset = GetRestartPoint(index);
+    value_ = Slice(data_ + offset, 0);
   }
 
   const Comparator *const comparator_;

@@ -51,26 +51,46 @@ void FilterBlockBuilder::GenerateFilter() {
 }
 
 Slice FilterBlockBuilder::Finish() {
-  // PUT
-  // [filter 0]
-  // [filter N-1]
   if (!start_.empty()) {
     GenerateFilter();
   }
 
-  // PUT
-  // [offset of filter 0]
-  // [offset of filter N - 1]
   const uint32_t array_offset = result_.size();
   for (size_t i = 0; i < filter_offsets_.size(); i++) {
     PutFixed32(&result_, filter_offsets_[i]);
   }
 
-  // PUT
-  // [offset of beginning of offset array]
-  // lg(base)
   PutFixed32(&result_, array_offset);
-  result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
+  result_.push_back(kFilterBaseLg);
   return Slice(result_);
+}
+
+FilterBlockReader::FilterBlockReader(const FilterPolicy *policy,
+                                     const Slice &contents)
+    : policy_(policy), data_(nullptr), offset_(nullptr), num_(0), base_lg_(0) {
+  size_t n = contents.size();
+  if (n < 5) return;
+  base_lg_ = contents[n - 1];
+  uint32_t last_word = DecodeFixed32(contents.data() + n - 5);
+  if (last_word > n - 5) return;
+  data_ = contents.data();
+  offset_ = data_ + last_word;
+  num_ = (n - 5 - last_word) / 4;
+}
+
+bool FilterBlockReader::KeyMayMatch(uint64_t block_offset, const Slice &key) {
+  uint64_t index = block_offset >> base_lg_;
+  if (index < num_) {
+    uint32_t start = DecodeFixed32(offset_ + index * 4);
+    uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);
+    if (start <= limit && limit <= static_cast<size_t>(offset_ - data_)) {
+      Slice filter = Slice(data_ + start, limit - start);
+      return policy_->KeyMayMatch(key, filter);
+    } else if (start == limit) {
+      // Empty filters do not match any keys
+      return false;
+    }
+  }
+  return true;
 }
 }  // namespace Tskydb

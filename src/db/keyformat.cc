@@ -8,6 +8,11 @@ static uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   return (seq << 8) | t;
 }
 
+void AppendInternalKey(std::string *result, const ParsedInternalKey &key) {
+  result->append(key.user_key.data(), key.user_key.size());
+  PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
+}
+
 int InternalKeyComparator::Compare(const Slice &akey, const Slice &bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)
@@ -58,5 +63,37 @@ void InternalKeyComparator::FindShortSuccessor(std::string *key) const {
     assert(this->Compare(*key, tmp) < 0);
     key->swap(tmp);
   }
+}
+
+void InternalFilterPolicy::CreateFilter(const Slice *keys, int n,
+                                        std::string *dst) const {
+  Slice *mkey = const_cast<Slice *>(keys);
+  for (int i = 0; i < n; i++) {
+    mkey[i] = ExtractUserKey(keys[i]);
+  }
+  user_policy_->CreateFilter(keys, n, dst);
+}
+
+bool InternalFilterPolicy::KeyMayMatch(const Slice &key, const Slice &f) const {
+  return user_policy_->KeyMayMatch(ExtractUserKey(key), f);
+}
+
+LookupKey::LookupKey(const Slice &user_key, SequenceNumber s) {
+  size_t usize = user_key.size();
+  size_t needed = usize + 13;
+  char *dst;
+  if (needed <= sizeof(space_)) {
+    dst = space_;
+  } else {
+    dst = new char[needed];
+  }
+  start_ = dst;
+  dst = EncodeVarint32(dst, usize + 8);
+  kstart_ = dst;
+  std::memcpy(dst, user_key.data(), usize);
+  dst += usize;
+  EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
+  dst += 8;
+  end_ = dst;
 }
 }  // namespace Tskydb

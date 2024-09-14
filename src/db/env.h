@@ -13,6 +13,8 @@
 
 namespace Tskydb {
 
+using size_t = std::size_t;
+
 constexpr const size_t kWritableFileBufferSize = 65536;
 
 class Env {

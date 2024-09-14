@@ -12,6 +12,9 @@
 #include "version_edit.h"
 #include "write_batch.h"
 
+#include <leveldb/cache.h>
+#include <leveldb/options.h>
+
 namespace Tskydb {
 
 const int kNumNonTableCacheFiles = 10;
@@ -68,12 +71,24 @@ static void ClipToRange(T *ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
 
-Options SanitizeOptions(const std::string &dbname, const Options &src) {
+Options SanitizeOptions(const std::string &dbname,
+                        const InternalKeyComparator *icmp,
+                        const InternalFilterPolicy *ipolicy,
+                        const Options &src) {
   Options result = src;
+  result.comparator = icmp;
+  result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
   ClipToRange(&result.max_open_files, 64 + kNumNonTableCacheFiles, 50000);
   ClipToRange(&result.write_buffer_size, 64 << 10, 1 << 30);
   ClipToRange(&result.max_file_size, 1 << 20, 1 << 30);
   ClipToRange(&result.block_size, 1 << 10, 4 << 20);
+
+  // TODO : Added log
+
+  if (result.block_cache == nullptr) {
+    result.block_cache = new LRUCache(8 << 20);
+  }
+  return result;
 }
 
 static int TableCacheSize(const Options &sanitized_options) {
@@ -88,7 +103,8 @@ DB::DB(const Options &options, const std::string &dbname)
     : env_(options.env),
       internal_comparator_(options.comparator),
       internal_filter_policy_(options.filter_policy),
-      options_(SanitizeOptions(dbname, options)),
+      options_(SanitizeOptions(dbname, &internal_comparator_,
+                               &internal_filter_policy_, options)),
       dbname_(dbname),
       table_cache_(new TableCache(dbname_, options_, TableCacheSize(options_))),
       background_work_finished_signal_(&mutex_),
@@ -229,6 +245,10 @@ void DB::BackgroundCompaction() {
   } else {
     CompactionState *compact = new CompactionState(c);
     status = DoCompactionWork(compact);
+    if (!status.ok()) {
+      RecordBackgroundError(status);
+    }
+    RemoveObsoleteFiles();
   }
 }
 
@@ -470,7 +490,7 @@ Status DB::Open(const Options &options, const std::string &dbname, DB **dbptr) {
   bool save_manifest = false;
   Status s = impl->Recover(&edit, &save_manifest);  // TODO
 
-  // Create new log file
+  // Create new Wal file
   if (s.ok() && impl->mem_ == nullptr) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     WritableFile *lfile;
@@ -481,8 +501,7 @@ Status DB::Open(const Options &options, const std::string &dbname, DB **dbptr) {
       impl->logfile_ = lfile;
       impl->logfile_number_ = new_log_number;
       impl->log_ = std::make_unique<Wal>(lfile);
-      impl->mem_ = new MemTable(
-          impl->internal_comparator_);  // Is it possible to use shared_ptr ?
+      impl->mem_ = new MemTable(impl->internal_comparator_);
       impl->mem_->Ref();
     }
   }
@@ -617,6 +636,44 @@ Status DB::Get(const ReadOptions &options, const Slice &key,
   return s;
 }
 
+Status DB::MakeMemoryToWrite(bool force) {
+  Status s;
+
+  while (true) {
+    // leveldb :延迟写操作：当内存表快满时，会延迟写操作以减缓系统的负担。
+
+    if (!force &&
+        (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
+      // 当前 memtable 还有空间，继续写入
+      break;
+    } else if (imm_ != nullptr) {
+      // 旧的 memtable 正在压缩，等待后台任务完成
+      background_work_finished_signal_.Wait();
+    } else {
+      // 创建新的 memtable 并切换日志文件
+      uint64_t new_log_number = versions_->NewFileNumber();
+      WritableFile *lfile = nullptr;
+      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
+      if (!s.ok()) {
+        versions_->ReuseFileNumber(new_log_number);
+        break;
+      }
+
+      delete logfile_;
+      logfile_ = lfile;
+      logfile_number_ = new_log_number;
+      log_.reset(new Wal(lfile));
+      imm_ = mem_;
+      has_imm_.store(true, std::memory_order_release);
+      mem_ = new MemTable(internal_comparator_);
+      mem_->Ref();
+      force = false;
+      MaybeScheduleCompaction();
+    }
+  }
+  return s;
+}
+
 WriteBatch *DB::BuildBatchGroup(Writer **last_writer) {
   Writer *first = writers_.front();
   WriteBatch *result = first->batch;
@@ -648,7 +705,6 @@ WriteBatch *DB::BuildBatchGroup(Writer **last_writer) {
       if (result == first->batch) {
         // Switch to temporary batch instead of disturbing caller's batch
         result = tmp_batch_.get();
-        assert(WriteBatchInternal::Count(result) == 0);
         WriteBatchInternal::Append(result, first->batch);
       }
       WriteBatchInternal::Append(result, w->batch);

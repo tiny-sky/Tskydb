@@ -29,6 +29,15 @@ MemTable::MemTable(const InternalKeyComparator &comparator)
 
 MemTable::~MemTable() { assert(refs_ == 0); }
 
+size_t MemTable::ApproximateMemoryUsage() { return arena_.MemoryUsage(); }
+
+int MemTable::KeyComparator::operator()(const char *aptr,
+                                        const char *bptr) const {
+  Slice a = GetLengthPrefixedSlice(aptr);
+  Slice b = GetLengthPrefixedSlice(bptr);
+  return comparator.Compare(a, b);
+}
+
 void MemTable::Add(SequenceNumber s, ValueType type, const Slice &key,
                    const Slice &value) {
   // Format of an entry is concatenation of:
@@ -59,17 +68,19 @@ bool MemTable::Get(const LookupKey &key, std::string *value, Status *s) {
   Slice memkey = key.memtable_key();
   Table::Iterator iter(&table_);
   iter.Seek(memkey.data());
+
   if (iter.Valid()) {
     const char *entry = iter.key();
     uint32_t key_length;
     const char *key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+
     if (comparator_.comparator.user_comparator()->Compare(
             Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-          value->assign(v.data(),v.size());
+          value->assign(v.data(), v.size());
           return true;
         }
         case kTypeDeletion:

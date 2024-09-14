@@ -1,5 +1,7 @@
 #include "arena.h"
 
+#include <atomic>
+
 namespace Tskydb {
 
 static const int kBlockSize = 4096;
@@ -21,6 +23,7 @@ auto Arena::AllocateFallback(size_t bytes) -> char * {
 
   alloc_ptr_ = AllocateNewBlock(kBlockSize);
   alloc_bytes_remaining_ = kBlockSize;
+
   char *result = alloc_ptr_;
   alloc_ptr_ += bytes;
   alloc_bytes_remaining_ -= bytes;
@@ -47,7 +50,8 @@ auto Arena::AllocateAligned(size_t bytes) -> char * {
 auto Arena::AllocateNewBlock(size_t block_bytes) -> char * {
   char *result = new char[block_bytes];
   blocks_.push_back(result);
-  memory_usage_ += block_bytes;
+  memory_usage_.fetch_add(block_bytes + sizeof(char *),
+                          std::memory_order_relaxed);
   return result;
 }
 }  // namespace Tskydb

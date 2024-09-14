@@ -160,6 +160,12 @@ class VersionSet {
     return (v->compaction_score_ >= 1) || (v->file_to_compact_ != nullptr);
   }
 
+  void ReuseFileNumber(uint64_t file_number) {
+    if (next_file_number_ == file_number + 1) {
+      next_file_number_ = file_number;
+    }
+  }
+
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   Iterator *MakeInputIterator(Compaction *c);

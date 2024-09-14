@@ -17,6 +17,8 @@
 #include "wal.h"
 #include "write_batch.h"
 
+#include <leveldb/filter_policy.h>
+
 namespace Tskydb {
 class DB {
  public:
@@ -79,7 +81,7 @@ class DB {
   // before writing data to the write-ahead log file
   // including whether the MemTable has reached the maximum capacity
   // and whether the number of files in Level-0 has reached a certain threshold.
-  Status MakeMemoryToWrite(bool force) { return Status::OK(); };
+  Status MakeMemoryToWrite(bool force);
 
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
@@ -107,12 +109,11 @@ class DB {
   // Complete the table construction through builder
   Status FinishCompactionOutputFile(CompactionState *compact, Iterator *input);
   // Create a Table File and builder helper function
-  Status OpenCompactionOutputFile(CompactionState* compact);
+  Status OpenCompactionOutputFile(CompactionState *compact);
   // Compress level file to level + 1 file
   // Delete level file
   // Added to level + 1
-  Status InstallCompactionResults(CompactionState* compact);
-
+  Status InstallCompactionResults(CompactionState *compact);
 
   // Background Work
   // =================================

@@ -28,6 +28,8 @@ class MemTable {
     }
   }
 
+  size_t ApproximateMemoryUsage();
+
   // Return an iterator that yields the contents of the memtable.
   //
   // The caller must ensure that the underlying MemTable remains live
@@ -39,7 +41,7 @@ class MemTable {
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
   // Typically value will be empty if type==kTypeDeletion.
-  void Add(uint64_t seq, ValueType type, const Slice &key,
+  void Add(SequenceNumber seq, ValueType type, const Slice &key,
            const Slice &value);
 
   // If memtable contains a value for key, store it in *value and return true.
