@@ -53,3 +53,6 @@ make build && cd build
 cmake ..
 make
 ```
+
+### LICENSE
+本项目所有代码使用 [Apache 2.0](./LICENSE) 进行许可。
