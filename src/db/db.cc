@@ -105,6 +105,7 @@ DB::DB(const Options &options, const std::string &dbname)
       internal_filter_policy_(options.filter_policy),
       options_(SanitizeOptions(dbname, &internal_comparator_,
                                &internal_filter_policy_, options)),
+      owns_cache_(options_.block_cache != options.block_cache),
       dbname_(dbname),
       table_cache_(new TableCache(dbname_, options_, TableCacheSize(options_))),
       background_work_finished_signal_(&mutex_),
@@ -116,8 +117,21 @@ DB::DB(const Options &options, const std::string &dbname)
 }
 
 DB::~DB() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    shutting_down_.store(true, std::memory_order_release);
+    while (background_compaction_scheduled_) {
+      background_work_finished_signal_.Wait();
+    }
+  }
+
   if (mem_ != nullptr) mem_->Unref();
   if (imm_ != nullptr) imm_->Unref();
+  delete logfile_;
+  delete table_cache_;
+  if (owns_cache_) {
+    delete options_.block_cache;
+  }
 }
 
 void DB::RemoveObsoleteFiles() {
@@ -863,5 +877,67 @@ Status DB::DoCompactionWork(CompactionState *compact) {
     RecordBackgroundError(status);
   }
   return status;
+}
+
+Status BuildTable(const std::string &dbname, Env *env, const Options &options,
+                  TableCache *table_cache, Iterator *iter, FileMetaData *meta) {
+  Status s;
+  meta->file_size = 0;
+  iter->SeekToFirst();
+
+  // Create a file
+  std::string fname = TableFileName(dbname, meta->number);
+  if (iter->Valid()) {
+    WritableFile *file;
+    s = env->NewWritableFile(fname, &file);
+    if (!s.ok()) {
+      return s;
+    }
+
+    // Inserting Data
+    TableBuilder *builder = new TableBuilder(options, file);
+    meta->smallest.DecodeFrom(iter->key());
+    Slice key;
+    for (; iter->Valid(); iter->Next()) {
+      key = iter->key();
+      builder->Add(key, iter->value());
+    }
+    if (!key.empty()) {
+      meta->largest.DecodeFrom(key);
+    }
+
+    // Finish and check for builder
+    s = builder->Finish();
+    if (s.ok()) {
+      meta->file_size = builder->FileSize();
+    }
+    delete builder;
+
+    if (s.ok()) {
+      s = file->Sync();
+    }
+    if (s.ok()) {
+      s = file->Close();
+    }
+    delete file;
+    file = nullptr;
+
+    if (s.ok()) {
+      Iterator *it = table_cache->NewIterator(ReadOptions(), meta->number,
+                                              meta->file_size);
+      s = it->status();
+      delete it;
+    }
+  }
+
+  if (!iter->status().ok()) {
+    s = iter->status();
+  }
+
+  if (s.ok() && meta->file_size > 0) {
+  } else {
+    env->RemoveFile(fname);
+  }
+  return s;
 }
 }  // namespace Tskydb

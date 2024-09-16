@@ -49,6 +49,31 @@ Status Env::NewWritableFile(const std::string &filename,
   return Status::OK();
 }
 
+Status Env::NewAppendableFile(const std::string &filename,
+                              WritableFile **result) {
+  int fd = ::open(filename.c_str(),
+                  O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+  if (fd < 0) {
+    *result = nullptr;
+    return PosixError(filename, errno);
+  }
+
+  *result = new WritableFile(filename, fd);
+  return Status::OK();
+}
+
+Status Env::NewSequentialFile(const std::string &filename,
+                              SequentialFile **result) {
+  int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
+  if (fd < 0) {
+    *result = nullptr;
+    return PosixError(filename, errno);
+  }
+
+  *result = new SequentialFile(filename, fd);
+  return Status::OK();
+}
+
 Status Env::NewRandomAccessFile(const std::string &filename,
                                 RandomAccessFile **result) {
   *result = nullptr;
@@ -296,7 +321,45 @@ Status SequentialFile::Skip(uint64_t n) {
 class PosixRandomAccessFile final : public RandomAccessFile {
  public:
   PosixRandomAccessFile(std::string filename, int fd)
-      : filename_(std::move(filename)), fd_(fd) {}
+      : fd_(fd), filename_(std::move(filename)) {
+    if (fd_ == -1) {
+      ::close(fd);
+    }
+  }
+
+  ~PosixRandomAccessFile() override {
+    if (fd_ != -1) {
+      ::close(fd_);
+    }
+  }
+
+  Status Read(uint64_t offset, size_t n, Slice *result,
+              char *scratch) const override {
+    int fd = fd_;
+    if (fd == -1) {
+      fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
+      if (fd < 0) {
+        return PosixError(filename_, errno);
+      }
+    }
+
+    ssize_t read_size = ::pread(fd, scratch, n, static_cast<off_t>(offset));
+    *result = Slice(scratch, (read_size < 0) ? 0 : read_size);
+    if (read_size < 0) {
+      // An error occurred: return a non-OK status.
+      Status status = PosixError(filename_, errno);
+      if (fd != fd_) {
+        ::close(fd);  // Close the temporary file descriptor.
+      }
+      return status;
+    }
+
+    if (fd != fd_) {
+      ::close(fd);
+    }
+
+    return Status::OK();
+  }
 
  private:
   const int fd_;  // -1 if has_permanent_fd_ is false.
@@ -311,7 +374,9 @@ class MmapReadableFile : public RandomAccessFile {
         filename_(std::move(filename)) {}
 
   ~MmapReadableFile() override {
-    ::munmap(static_cast<void *>(mmap_base_), length_);
+    if (mmap_base_ != nullptr) {
+      ::munmap(static_cast<void *>(mmap_base_), length_);
+    }
   }
 
   Status Read(uint64_t offset, size_t n, Slice *result,

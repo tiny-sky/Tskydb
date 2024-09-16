@@ -35,7 +35,7 @@ enum class FileState {
 // crc          : fixed32
 // size         : fixed32
 // compression  : char
-const uint64_t kBlobHeaderSize = 9;
+const uint64_t kHeaderSize = 9;
 
 // vtable record format:
 //
@@ -63,7 +63,7 @@ class Encoder {
   size_t GetEncodedSize() const { return sizeof(header_) + record_.size(); }
 
  private:
-  char header_[kBlobHeaderSize];
+  char header_[kHeaderSize];
   Slice record_;
   std::string record_buffer_;
   std::string compressed_buffer_;

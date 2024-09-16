@@ -20,12 +20,9 @@ class VFileBuilder {
   Status status() const { return status_; }
 
   // Finishes building the table.
-  // REQUIRES: Finish(), Abandon() have not been called.
+  // REQUIRES: Finish(), Close() have not been called.
   Status Finish();
 
-  // Abandons building the table. If the caller is not going to call
-  // Finish(), it must call Abandon() before destroying this builder.
-  // REQUIRES: Finish(), Abandon() have not been called.
   void Close();
 
  private:

@@ -50,13 +50,13 @@ void Encoder::EncodeRecord(const VRecord &record) {
 
 Status Decoder::DecodeHeader(Slice *src) {
   if (!GetFixed32(src, &crc_)) {
-    return Status::Corruption("BlobHeader");
+    return Status::Corruption("Header");
   }
-  header_crc_ = leveldb::crc32c::Value(src->data(), kBlobHeaderSize - 4);
+  header_crc_ = leveldb::crc32c::Value(src->data(), kHeaderSize - 4);
 
   unsigned char compression;
   if (!GetFixed32(src, &record_size_) || !GetChar(src, &compression)) {
-    return Status::Corruption("BlobHeader");
+    return Status::Corruption("Header");
   }
   compression_ = static_cast<CompressionType>(compression);
 
@@ -69,7 +69,7 @@ Status Decoder::DecodeRecord(Slice *src, VRecord *record, std::string *buffer) {
   uint32_t crc =
       leveldb::crc32c::Extend(header_crc_, input.data(), input.size());
   if (crc != crc_) {
-    return Status::Corruption("BlobRecord", "checksum mismatch");
+    return Status::Corruption("Record", "checksum mismatch");
   }
 
   if (compression_ == kNoCompression) {
@@ -88,7 +88,7 @@ void VHandle::EncodeTo(std::string *dst) const {
 
 Status VHandle::DecodeFrom(Slice *src) {
   if (!GetVarint64(src, &offset) || !GetVarint64(src, &size)) {
-    return Status::Corruption("BlobHandle");
+    return Status::Corruption("Handle");
   }
   return Status::OK();
 }

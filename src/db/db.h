@@ -128,12 +128,6 @@ class DB {
   void BackgroundCall();
   void RecordBackgroundError(const Status &s);
 
-  // BuildTable
-  // =================================
-  Status BuildTable(const std::string &dbname, Env *env, const Options &options,
-                    TableCache *table_cache, Iterator *iter,
-                    FileMetaData *meta);
-
   // Helper
   // =================================
   const Comparator *user_comparator() const {
@@ -145,6 +139,7 @@ class DB {
   const InternalKeyComparator internal_comparator_;
   const InternalFilterPolicy internal_filter_policy_;
   const Options options_;
+  const bool owns_cache_;
   const std::string dbname_;
 
   TableCache *const table_cache_;
@@ -184,4 +179,9 @@ class DB {
   // Other
   CompactionStats stats_[config::kNumLevels];
 };
+
+// BuildTable
+// =================================
+Status BuildTable(const std::string &dbname, Env *env, const Options &options,
+                  TableCache *table_cache, Iterator *iter, FileMetaData *meta);
 }  // namespace Tskydb

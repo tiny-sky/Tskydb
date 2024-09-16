@@ -16,13 +16,14 @@ namespace Tskydb {
 using size_t = std::size_t;
 
 constexpr const size_t kWritableFileBufferSize = 65536;
+constexpr const int kOpenBaseFlags = 0;
 
 class Env {
   using BackgroundWorkFunc = std::function<void(void *)>;
 
  public:
-  Env();
-  ~Env();
+  Env() = default;
+  ~Env() = default;
 
   Status NewSequentialFile(const std::string &filename,
                            SequentialFile **result);
@@ -115,7 +116,7 @@ class RandomAccessFile {
   RandomAccessFile(const RandomAccessFile &) = delete;
   RandomAccessFile &operator=(const RandomAccessFile &) = delete;
 
-  virtual ~RandomAccessFile();
+  virtual ~RandomAccessFile() = default;
 
   // Read up to "n" bytes from the file starting at "offset".
   // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
