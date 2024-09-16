@@ -137,6 +137,24 @@ uint64_t Env::NowMicros() {
   return static_cast<uint64_t>(tv.tv_sec) * kUsecondsPerSecond + tv.tv_usec;
 }
 
+WriteableFileWriter::WriteableFileWriter(std::unique_ptr<WritableFile> &&file)
+    : writable_file_(std::move(file)), filesize_(0) {}
+
+Status WriteableFileWriter::Append(const Slice &data) {
+  Status status = writable_file_->Append(data);
+  if (status.ok()) {
+    filesize_ += data.size();
+  }
+
+  return status;
+}
+
+Status WriteableFileWriter::Close() { return writable_file_->Close(); }
+
+Status WriteableFileWriter::Flush() { return writable_file_->Flush(); }
+
+Status WriteableFileWriter::Sync() { return writable_file_->Sync(); }
+
 WritableFile::WritableFile(std::string filename, int fd)
     : pos_(0),
       fd_(fd),

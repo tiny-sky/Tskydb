@@ -5,6 +5,8 @@
 
 namespace Tskydb {
 
+const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
+
 void BlockHandle::EncodeTo(std::string *dst) const {
   // Sanity check that all fields have been set
   assert(offset_ != ~static_cast<uint64_t>(0));

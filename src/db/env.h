@@ -130,6 +130,34 @@ class RandomAccessFile {
                       char *scratch) const = 0;
 };
 
+class WriteableFileWriter {
+ public:
+  WriteableFileWriter(std::unique_ptr<WritableFile> &&file);
+
+  ~WriteableFileWriter() = default;
+  DISALLOW_COPY(WriteableFileWriter);
+
+  // Write small data into the buffer to reduce IO operations
+  // Write big data directly to file
+  Status Append(const Slice &data);
+
+  // Flash the disk
+  // Close fd
+  Status Close();
+
+  // Flash the disk
+  Status Flush();
+
+  // Ensure that memory and disk data are consistent
+  Status Sync();
+
+  uint64_t GetFileSize() { return filesize_; }
+
+ private:
+  uint64_t filesize_;
+  std::unique_ptr<WritableFile> writable_file_;
+};
+
 class WritableFile {
  public:
   WritableFile(std::string filename, int fd);

@@ -4,8 +4,8 @@
 #include "common/comparator.h"
 #include "common/filter_policy.h"
 #include "env.h"
-
-#include <leveldb/cache.h>
+#include "table/lrucache.h"
+#include "util/compressor.h"
 
 namespace Tskydb {
 class Comparator;
@@ -22,6 +22,19 @@ struct Options {
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.
   const FilterPolicy *filter_policy;
+
+  // Compress blocks using the specified compression algorithm.  This
+  // parameter can be changed dynamically.
+  //
+  // Default: kSnappyCompression, which gives lightweight but fast
+  // compression.
+  CompressionType compression = kSnappyCompression;
+
+  // The smallest value to store in value files. Value smaller than
+  // this threshold will be inlined in base DB.
+  //
+  // Default: 4096
+  uint64_t min_vtable_size{4096};
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc.

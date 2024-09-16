@@ -7,6 +7,10 @@
 #include "util/format.h"
 #include "util/status.h"
 
+#include "wisckey/vtable_format.h"
+
+using namespace Tskydb::wisckey;
+
 namespace Tskydb {
 
 struct FileMetaData {
@@ -62,6 +66,14 @@ class VersionEdit {
     deleted_files_.insert(std::make_pair(level, file));
   }
 
+  void AddVFile(std::shared_ptr<VFileMeta> file) {
+    added_vfiles_.push_back(file);
+  }
+
+  void DeleteVFile(uint64_t file_number) {
+    deleted_vfiles_.push_back(file_number);
+  }
+
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
 
@@ -82,5 +94,9 @@ class VersionEdit {
   std::vector<std::pair<int, InternalKey>> compact_pointers_;
   DeletedFileSet deleted_files_;
   std::vector<std::pair<int, FileMetaData>> new_files_;
+
+  // Vtable
+  std::vector<std::shared_ptr<VFileMeta>> added_vfiles_;
+  std::vector<uint64_t> deleted_vfiles_;
 };
 }  // namespace Tskydb

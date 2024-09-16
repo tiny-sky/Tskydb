@@ -6,6 +6,7 @@
 #include <set>
 #include <string>
 
+#include "db/snapshot.h"
 #include "options.h"
 #include "table/memtable.h"
 #include "table/table_cache.h"
@@ -17,7 +18,15 @@
 #include "wal.h"
 #include "write_batch.h"
 
-#include <leveldb/filter_policy.h>
+#include "wisckey/file_manager.h"
+
+namespace Tskydb {
+namespace wisckey {
+
+class VFileManager;
+}  // namespace wisckey
+
+}  // namespace Tskydb
 
 namespace Tskydb {
 class DB {
@@ -31,12 +40,9 @@ class DB {
   // Open the database with the specified "name".
   // Stores a pointer to a heap-allocated database in *dbptr and returns
   // OK on success.
-  // Stores nullptr in *dbptr and returns a non-OK status on error.
-  // Caller should delete *dbptr when it is no longer needed.
   static Status Open(const Options &, const std::string &name, DB **dbptr);
 
   // Set the database entry for "key" to "value".  Returns OK on success,
-  // and a non-OK status on error.
   Status Put(const WriteOptions &options, const Slice &key, const Slice &value);
 
   // Remove the database entry (if any) for "key".  Returns OK on
@@ -58,6 +64,7 @@ class DB {
   Status Get(const ReadOptions &options, const Slice &key, std::string *value);
 
  private:
+  friend class wisckey::VFileManager;
   struct Writer;
   struct CompactionState;
 

@@ -20,6 +20,7 @@ class BlockHandle {
   enum { kMaxEncodedLength = 10 + 10 };
 
   BlockHandle();
+  BlockHandle(uint64_t offset, uint64_t size);
 
   // The offset of the block in the file.
   uint64_t offset() const { return offset_; }
@@ -32,9 +33,13 @@ class BlockHandle {
   void EncodeTo(std::string *dst) const;
   Status DecodeFrom(Slice *input);
 
+  static const BlockHandle &NullBlockHandle() { return kNullBlockHandle; }
+
  private:
   uint64_t offset_;
   uint64_t size_;
+
+  static const BlockHandle kNullBlockHandle;
 };
 
 // Footer encapsulates the fixed information stored at the tail
@@ -83,4 +88,6 @@ Status ReadBlock(RandomAccessFile *file, const ReadOptions &options,
 
 inline BlockHandle::BlockHandle()
     : offset_(~static_cast<uint64_t>(0)), size_(~static_cast<uint64_t>(0)) {}
+inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
+    : offset_(_offset), size_(_size) {}
 }  // namespace Tskydb

@@ -28,7 +28,11 @@ static const int kReadBytesPeriod = 1048576;
 }  // namespace config
 
 // The type of operation this time
-enum ValueType { kTypeDeletion = 0x0, kTypeValue = 0x1 };
+enum ValueType {
+  kTypeDeletion = 0x0,
+  kTypeValue = 0x1,
+  kTypeVtableIndex = 0x2
+};
 static const ValueType kValueTypeForSeek = kTypeValue;
 
 typedef uint64_t SequenceNumber;

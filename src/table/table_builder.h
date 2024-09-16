@@ -4,6 +4,7 @@
 #include "db/options.h"
 #include "util/macros.h"
 #include "util/slice.h"
+#include "block.h"
 
 namespace Tskydb {
 
@@ -38,6 +39,7 @@ class TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const;
 
+  // Abandon
   void Close();
 
  private:
